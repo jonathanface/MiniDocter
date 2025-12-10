@@ -38,46 +38,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Run tests
-        run: npm test -- --coverage --watchAll=false
-
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
-        if: matrix.node-version == '20.x'
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/coverage-final.json
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-      - name: Archive test coverage
-        if: matrix.node-version == '20.x'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 30
-
-      - name: Check test coverage threshold
-        if: matrix.node-version == '20.x'
-        run: |
-          # Extract coverage percentage from coverage-summary.json
-          COVERAGE=$(node -p "
-            const coverage = require('./coverage/coverage-summary.json');
-            const total = coverage.total;
-            Math.min(
-              total.statements.pct,
-              total.branches.pct,
-              total.functions.pct,
-              total.lines.pct
-            );
-          ")
-          echo "Minimum coverage: $COVERAGE%"
-          # Require at least 80% coverage for utils (adjust as needed)
-          # if (( $(echo "$COVERAGE < 80" | bc -l) )); then
-          #   echo "Coverage is below 80%"
-          #   exit 1
-          # fi
+        run: npm test -- --watchAll=false
 
   lint:
     name: Lint Code
