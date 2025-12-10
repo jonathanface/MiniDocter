@@ -16,10 +16,10 @@ export const authenticatedFetch = async (
   // Get session token from secure storage
   const sessionToken = await SecureStore.getItemAsync(SESSION_TOKEN_KEY);
 
-  // Prepare headers
-  const headers: HeadersInit = {
+  // Prepare headers as a plain object for easy manipulation
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers || {}),
+    ...(options.headers as Record<string, string> || {}),
   };
 
   // Add Authorization header if token exists

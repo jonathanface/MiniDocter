@@ -42,7 +42,6 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
 
     try {
       setLoading(true);
-      console.log('Loading association details:', associationId);
       const response = await apiGet(`/stories/${storyId}/associations/${associationId}`);
 
       if (!response.ok) {
@@ -50,7 +49,6 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       }
 
       const data: Association = await response.json();
-      console.log('Association loaded:', data.association_name);
       setAssociation(data);
     } catch (error) {
       console.error('Failed to load association:', error);

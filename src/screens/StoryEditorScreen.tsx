@@ -1,72 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  TextStyle,
-  BackHandler,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { v4 as uuidv4 } from 'uuid';
+import { RichText, useEditorBridge } from '@10play/tentap-editor';
 import { apiGet, apiPut } from '../utils/api';
-import { SimplifiedAssociation } from '../types/associations';
-import { AssociationPanel } from '../components/AssociationPanel';
 import { useTheme } from '../contexts/ThemeContext';
+import { CustomToolbar } from '../components/CustomToolbar';
+import { useAssociations } from '../hooks/useAssociations';
+import { useDocumentSettings } from '../hooks/useDocumentSettings';
+import { applyAssociationColors } from '../utils/applyAssociationColors';
+import { AssociationPanel } from '../components/AssociationPanel';
 
-// Lexical text format bit flags
-const TEXT_FORMAT_BOLD = 1;
-const TEXT_FORMAT_ITALIC = 2;
-const TEXT_FORMAT_STRIKETHROUGH = 4;
-const TEXT_FORMAT_UNDERLINE = 8;
-
-// Types for lexical paragraph structure
-interface LexicalTextNode {
-  text: string;
-  type: 'text';
-  format?: number;
-  style?: string;
-  [key: string]: any;
-}
-
-interface LexicalParagraph {
-  type: string;
-  key_id: string;
-  children: LexicalTextNode[];
-  direction?: string;
-  format?: string;
-  indent?: number;
-  version?: number;
-  [key: string]: any;
-}
-
-interface DynamoDBItem {
-  key_id: { Value: string };
-  chunk: { Value: string };
-  place: { Value: string };
-  composite_key?: { Value: string };
-}
-
-interface BlocksResponse {
-  items: DynamoDBItem[];
-  last_evaluated_key?: any;
-  scanned_count?: number;
+interface Chapter {
+  id: string;
+  title: string;
+  place: number;
 }
 
 interface Story {
   story_id: string;
   title: string;
   description: string;
-  chapters: Array<{
-    id: string;
-    title: string;
-    place: number;
-  }>;
+  chapters: Chapter[];
 }
 
 export const StoryEditorScreen = () => {
@@ -74,133 +40,230 @@ export const StoryEditorScreen = () => {
   const navigation = useNavigation();
   const params = route.params as { storyId: string } | undefined;
   const storyId = params?.storyId;
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [story, setStory] = useState<Story | null>(null);
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null);
-  const [paragraphs, setParagraphs] = useState<LexicalParagraph[]>([]);
-  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
-  const [textSelection, setTextSelection] = useState<{ start: number; end: number } | null>(null);
-  const [associations, setAssociations] = useState<SimplifiedAssociation[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [originalBlocks, setOriginalBlocks] = useState<any[]>([]);
+  const [associationPanelVisible, setAssociationPanelVisible] = useState(false);
   const [selectedAssociationId, setSelectedAssociationId] = useState<string | null>(null);
-  const [showAssociationPanel, setShowAssociationPanel] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const textInputRefs = useRef<Map<number, TextInput>>(new Map());
+  const [associationsListVisible, setAssociationsListVisible] = useState(false);
 
+  // Fetch associations for coloring text
+  const { associations } = useAssociations(storyId);
+
+  // Fetch document settings (e.g., autotab)
+  const { settings } = useDocumentSettings(storyId);
+
+  // Track if we're currently applying colors to prevent infinite loops
+  const [isApplyingColors, setIsApplyingColors] = useState(false);
+
+  // Track if CSS has been injected
+  const [cssInjected, setCssInjected] = useState(false);
+
+  // Initialize editor with empty content
+  const editor = useEditorBridge({
+    autofocus: false,
+    avoidIosKeyboard: true,
+    initialContent: '',
+  });
+
+  // Inject theme-aware CSS after editor initialization
   useEffect(() => {
-    if (storyId) {
-      loadStory();
-    } else {
+    if (!editor || !editor.injectCSS) return;
+
+    editor.injectCSS(`
+        * {
+          white-space: pre-wrap !important;
+          tab-size: 4 !important;
+        }
+        body {
+          background-color: ${colors.bgEditor} !important;
+          color: ${colors.textPrimary} !important;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 17px;
+          margin: 0;
+          white-space: pre-wrap !important;
+          tab-size: 4 !important;
+        }
+        /* Add padding to the editor content container */
+        .ProseMirror {
+          padding: 20px !important;
+          box-sizing: border-box !important;
+        }
+        p {
+          color: ${colors.textPrimary} !important;
+          font-size: 17px;
+          line-height: 1.6;
+          margin: 0.5em 0;
+          white-space: pre-wrap !important;
+          tab-size: 4 !important;
+        }
+        span, strong, em, u, s {
+          white-space: pre-wrap !important;
+        }
+        strong, em, u, s {
+          color: ${colors.textPrimary} !important;
+        }
+        /* Default text color for regular spans */
+        span {
+          color: ${colors.textPrimary};
+        }
+        /* Association spans use their inline color - higher specificity */
+        span.association-mark[style*="color"] {
+          /* Inline style color takes precedence (no !important to allow inline) */
+        }
+        blockquote {
+          background-color: ${colors.bgEditorBlockquote};
+          color: ${colors.textSecondary} !important;
+          border-left: 4px solid ${colors.primary};
+          padding: 0.5em 1em;
+          margin: 1em 0;
+        }
+        ul, ol, li {
+          color: ${colors.textPrimary} !important;
+        }
+        code {
+          background-color: ${colors.bgSecondary};
+          color: ${colors.primary} !important;
+          padding: 0.2em 0.4em;
+          border-radius: 3px;
+          font-family: 'Courier New', monospace;
+        }
+        h1, h2, h3, h4, h5, h6 {
+          color: ${colors.textPrimary} !important;
+        }
+      `);
+
+    // Small delay to ensure CSS is applied before loading content
+    setTimeout(() => {
+      setCssInjected(true);
+    }, 100);
+  }, [editor, colors]);
+
+  // Load story and chapters
+  useEffect(() => {
+    if (!storyId) {
       Alert.alert('Error', 'No story ID provided');
       navigation.goBack();
+      return;
     }
+
+    loadStory();
   }, [storyId]);
 
+  // Load chapter content when chapter changes or CSS is ready
+  useEffect(() => {
+    if (currentChapterId && story && cssInjected) {
+      setOriginalBlocks([]); // Clear original blocks when switching chapters
+      loadChapterContent();
+    }
+  }, [currentChapterId, cssInjected]);
+
+  // Auto-select first chapter
   useEffect(() => {
     if (story && story.chapters.length > 0 && !currentChapterId) {
-      // Load first chapter by default
       setCurrentChapterId(story.chapters[0].id);
     }
   }, [story]);
 
+  // Real-time association highlighting as user types
+  // DISABLED: Causes cursor jumping due to setContent() limitations with TenTap
+  // TODO: Implement using WebView-based highlighting that doesn't require setContent
   useEffect(() => {
-    if (currentChapterId) {
-      loadChapterContent();
-    }
-  }, [currentChapterId]);
+    if (true) return; // Disabled for now
+    if (!editor || associations.length === 0) return;
 
-  // Handle back navigation - intercept when there are unsaved changes
-  useEffect(() => {
-    const handleBeforeRemove = (e: any) => {
-      if (!hasUnsavedChanges) {
-        // No unsaved changes, allow navigation
-        return;
-      }
+    const editorAny = editor as any;
+    let debounceTimer: NodeJS.Timeout | null = null;
 
-      // Prevent default navigation
-      e.preventDefault();
+    // Subscribe to content updates
+    const unsubscribe = editorAny._subscribeToContentUpdate?.(() => {
+      // Clear previous timer
+      if (debounceTimer) clearTimeout(debounceTimer);
 
-      // Show alert
-      Alert.alert(
-        'Unsaved Changes',
-        'You have unsaved changes. Do you want to save before leaving?',
-        [
-          {
-            text: 'Discard',
-            style: 'destructive',
-            onPress: () => {
-              if (e.data?.action) {
-                navigation.dispatch(e.data.action);
-              } else {
-                navigation.goBack();
-              }
-            },
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Save',
-            onPress: async () => {
-              await handleSave();
-              if (e.data?.action) {
-                navigation.dispatch(e.data.action);
-              } else {
-                navigation.goBack();
-              }
-            },
-          },
-        ]
-      );
-    };
+      // Debounce the color application to avoid disrupting typing
+      debounceTimer = setTimeout(async () => {
+        if (isApplyingColors) return;
 
-    // Add listener for navigation attempts
-    const unsubscribe = navigation.addListener('beforeRemove', handleBeforeRemove);
+        try {
+          setIsApplyingColors(true);
 
-    return unsubscribe;
-  }, [navigation, hasUnsavedChanges, handleSave]);
+          // Get current HTML content and selection
+          const currentHtml = await editor.getHTML();
+          const currentJson = await editor.getJSON();
 
-  // Handle hardware back button on Android
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (hasUnsavedChanges) {
-        Alert.alert(
-          'Unsaved Changes',
-          'You have unsaved changes. Do you want to save before leaving?',
-          [
-            {
-              text: 'Discard',
-              style: 'destructive',
-              onPress: () => navigation.goBack(),
-            },
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-            {
-              text: 'Save',
-              onPress: async () => {
-                await handleSave();
-                navigation.goBack();
-              },
-            },
-          ]
-        );
-        return true; // Prevent default back behavior
-      }
-      return false; // Allow default back behavior
+          // Try to get cursor position (this might not work perfectly with TenTap)
+          let cursorPosition: any = null;
+          try {
+            // Store the selection state if available
+            if (editorAny.current?.state?.selection) {
+              cursorPosition = editorAny.current.state.selection;
+            }
+          } catch (e) {
+            // Selection API might not be available
+          }
+
+          // Strip ALL existing association spans to get clean text
+          // Use multiple passes to ensure we get nested or malformed spans
+          let cleanHtml = currentHtml;
+          let previousHtml = '';
+          let iterations = 0;
+
+          // Log original HTML
+
+          // Keep stripping until no more association spans found (max 5 iterations)
+          while (cleanHtml !== previousHtml && iterations < 5) {
+            previousHtml = cleanHtml;
+            cleanHtml = cleanHtml.replace(
+              /<span[^>]*data-association-id[^>]*>([^<]*)<\/span>/gi,
+              '$1'
+            );
+            iterations++;
+          }
+
+
+          // Re-apply association colors
+          const coloredHtml = applyAssociationColors(cleanHtml, associations);
+
+
+          // Only update if there's a meaningful difference (associations added/removed)
+          // Compare the text content to see if anything actually changed
+          const currentText = currentHtml.replace(/<[^>]*>/g, '');
+          const coloredText = coloredHtml.replace(/<[^>]*>/g, '');
+
+          // Only update if:
+          // 1. The text is the same (just styling changed), OR
+          // 2. There's actually a difference in highlighting
+          const hasAssociationInCurrent = /<span[^>]*data-association-id/.test(currentHtml);
+          const hasAssociationInColored = /<span[^>]*data-association-id/.test(coloredHtml);
+
+          if (currentText === coloredText && hasAssociationInCurrent !== hasAssociationInColored) {
+            // Associations added or removed - update
+            editor.setContent(coloredHtml);
+          } else if (coloredHtml !== currentHtml && currentText === coloredText) {
+            // Just styling changed, safe to update
+            editor.setContent(coloredHtml);
+          } else {
+          }
+        } catch (error) {
+          console.error('[Association Colors] Error:', error);
+        } finally {
+          setIsApplyingColors(false);
+        }
+      }, 800); // 800ms debounce - wait for user to pause typing
     });
 
-    return () => backHandler.remove();
-  }, [hasUnsavedChanges, navigation, handleSave]);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (unsubscribe) unsubscribe();
+    };
+  }, [editor, associations, isApplyingColors]);
 
   const loadStory = async () => {
-    if (!storyId) return;
-
     try {
-      console.log('Loading story:', storyId);
       const response = await apiGet(`/stories/${storyId}`);
 
       if (!response.ok) {
@@ -208,11 +271,7 @@ export const StoryEditorScreen = () => {
       }
 
       const storyData: Story = await response.json();
-      console.log('Story loaded:', storyData.title, 'with', storyData.chapters.length, 'chapters');
       setStory(storyData);
-
-      // Load associations for this story
-      loadAssociations();
     } catch (error) {
       console.error('Failed to load story:', error);
       Alert.alert('Error', 'Failed to load story');
@@ -222,920 +281,389 @@ export const StoryEditorScreen = () => {
     }
   };
 
-  const loadAssociations = async () => {
-    if (!storyId) return;
-
-    try {
-      console.log('Loading associations for story:', storyId);
-      const response = await apiGet(`/stories/${storyId}/associations/thumbs`);
-
-      if (response.status === 404) {
-        // No associations yet, that's okay
-        console.log('No associations found (404)');
-        setAssociations([]);
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(`Failed to load associations: ${response.status}`);
-      }
-
-      const associationsData: SimplifiedAssociation[] = await response.json();
-      // Filter out empty association names
-      const filteredAssociations = associationsData.filter(
-        (assoc) => assoc.association_name && assoc.association_name.trim() !== ''
-      );
-      console.log('Loaded', filteredAssociations.length, 'associations');
-      setAssociations(filteredAssociations);
-    } catch (error) {
-      console.error('Failed to load associations:', error);
-      // Don't show alert, associations are optional
-      setAssociations([]);
-    }
-  };
-
   const loadChapterContent = async () => {
     if (!storyId || !currentChapterId) return;
 
-    try {
-      console.log('Loading chapter content for chapterID:', currentChapterId);
-      console.log('Full URL:', `/stories/${storyId}/content?chapter=${currentChapterId}`);
-
-      // Correct endpoint is /content not /blocks
-      const response = await apiGet(`/stories/${storyId}/content?chapter=${currentChapterId}`);
-
-      console.log('Chapter content response:', {
-        status: response.status,
-        ok: response.ok,
-        statusText: response.statusText,
-        contentType: response.headers.get('content-type'),
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          // No content yet, start with blank paragraph
-          console.log('No content found (404), starting with blank paragraph');
-          setParagraphs([createBlankParagraph()]);
-          return;
-        }
-
-        // Log error response body
-        const errorText = await response.text();
-        console.error('Error response body:', errorText.substring(0, 200));
-        throw new Error(`Failed to load chapter content: ${response.status}`);
-      }
-
-      // Check content type before parsing
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const responseText = await response.text();
-        console.error('Non-JSON response received:', {
-          contentType,
-          bodyPreview: responseText.substring(0, 200),
-        });
-        throw new Error('Server returned non-JSON response');
-      }
-
-      const blocksData: BlocksResponse = await response.json();
-      console.log('API Response:', {
-        itemCount: blocksData.items?.length || 0,
-        hasLastEvaluatedKey: !!blocksData.last_evaluated_key,
-        scannedCount: blocksData.scanned_count,
-      });
-
-      if (!blocksData.items || blocksData.items.length === 0) {
-        // No content, start with blank paragraph
-        console.log('No blocks in response, starting with blank paragraph');
-        setParagraphs([createBlankParagraph()]);
-        return;
-      }
-
-      // Log first few items to verify structure
-      console.log('Sample items:', blocksData.items.slice(0, 2).map(item => ({
-        key_id: item.key_id?.Value,
-        place: item.place?.Value,
-        hasChunk: !!item.chunk?.Value,
-      })));
-
-      // Parse DynamoDB items into lexical paragraphs
-      const parsedParagraphs = blocksData.items.map((item, index) => {
-        const keyId = item.key_id?.Value || uuidv4();
-        const chunkValue = item.chunk?.Value;
-        const place = item.place?.Value;
-
-        console.log(`Processing item ${index}: place=${place}, keyId=${keyId}, hasChunk=${!!chunkValue}`);
-
-        if (chunkValue) {
-          try {
-            // Parse once
-            let parsed = JSON.parse(chunkValue);
-
-            // Check if it's double-encoded (parsed result is still a string)
-            if (typeof parsed === 'string') {
-              console.log(`Double-encoded JSON detected at index ${index}, parsing again`);
-              parsed = JSON.parse(parsed);
-            }
-
-            // Now we should have the object
-            const paragraph = parsed as LexicalParagraph;
-            paragraph.key_id = keyId; // Ensure key_id is set
-            return paragraph;
-          } catch (error) {
-            console.error(`Failed to parse chunk at index ${index}:`, error);
-            return createBlankParagraph(keyId);
-          }
-        }
-
-        return createBlankParagraph(keyId);
-      });
-
-      console.log('Successfully parsed', parsedParagraphs.length, 'paragraphs');
-      console.log('Setting paragraphs state with', parsedParagraphs.length, 'items');
-      setParagraphs(parsedParagraphs);
-      setHasUnsavedChanges(false); // Reset flag after loading content
-    } catch (error) {
-      console.error('Failed to load chapter content:', error);
-      Alert.alert(
-        'Error',
-        'Failed to load chapter content. Starting with blank document.'
-      );
-      // Start with blank paragraph on error
-      setParagraphs([createBlankParagraph()]);
-    }
-  };
-
-  const createBlankParagraph = (keyId?: string): LexicalParagraph => ({
-    type: 'custom-paragraph',
-    key_id: keyId || uuidv4(),
-    children: [],
-    direction: 'ltr',
-    format: '',
-    indent: 0,
-    version: 1,
-  });
-
-  // Extract text content from a lexical paragraph
-  const extractTextFromParagraph = (paragraph: LexicalParagraph): string => {
-    if (!paragraph.children || paragraph.children.length === 0) {
-      return '';
-    }
-    return paragraph.children.map((child) => child.text || '').join('');
-  };
-
-  // Extract text alignment from paragraph format
-  const getTextAlignment = (format?: string): 'left' | 'center' | 'right' | 'justify' => {
-    if (!format) return 'left';
-
-    // In Lexical, format can be 'left', 'center', 'right', 'justify', or ''
-    if (format === 'center') return 'center';
-    if (format === 'right') return 'right';
-    if (format === 'justify') return 'justify';
-
-    return 'left';
-  };
-
-  // Expand tabs to 5 spaces for mobile display (preserves tabs in actual data)
-  const expandTabsForDisplay = (text: string): string => {
-    return text.replace(/\t/g, '     '); // 5 spaces
-  };
-
-  // Render paragraph children with formatting
-  const renderFormattedChildren = (paragraph: LexicalParagraph) => {
-    if (!paragraph.children || paragraph.children.length === 0) {
-      return null;
-    }
-
-    return paragraph.children.map((child, childIndex) => {
-      const childText = child.text || '';
-      const childFormat = child.format || 0;
-      const childStyle = getTextStyle(childFormat);
-
-      // Find association matches within this child's text
-      const segments = findAssociationMatches(childText);
-
-      return segments.map((segment, segmentIndex) => (
-        <Text
-          key={`${childIndex}-${segmentIndex}`}
-          style={[
-            childStyle, // Apply formatting from text node
-            segment.association
-              ? {
-                  color: getAssociationColor(segment.association.association_type),
-                  fontWeight: '600',
-                }
-              : undefined,
-          ]}
-          onPress={
-            segment.association
-              ? () => {
-                  setSelectedAssociationId(segment.association!.association_id);
-                  setShowAssociationPanel(true);
-                }
-              : undefined
-          }
-        >
-          {segment.text}
-        </Text>
-      ));
-    });
-  };
-
-  // Get text format flags from paragraph's first child
-  const getTextFormat = (paragraph: LexicalParagraph): number => {
-    if (!paragraph.children || paragraph.children.length === 0) {
-      return 0;
-    }
-    return paragraph.children[0].format || 0;
-  };
-
-  // Get text format at the current selection/cursor position
-  const getFormatAtSelection = (paragraph: LexicalParagraph, selection: { start: number; end: number } | null): number => {
-    if (!paragraph.children || paragraph.children.length === 0) {
-      return 0;
-    }
-
-    // If only one child, return its format
-    if (paragraph.children.length === 1) {
-      return paragraph.children[0].format || 0;
-    }
-
-    // If no selection info, check if all children have the same format
-    if (!selection) {
-      const firstFormat = paragraph.children[0].format || 0;
-      const allSameFormat = paragraph.children.every(child => (child.format || 0) === firstFormat);
-      return allSameFormat ? firstFormat : 0;
-    }
-
-    // Check if this is a selection range (not just cursor position)
-    const hasRange = selection.start !== selection.end;
-
-    // Collect formats of all characters in the selection range
-    let currentPosition = 0;
-    const formatsInSelection: number[] = [];
-
-    for (const child of paragraph.children) {
-      const childLength = child.text?.length || 0;
-      const childEnd = currentPosition + childLength;
-      const childFormat = child.format || 0;
-
-      // Check if this child overlaps with the selection
-      if (hasRange) {
-        // Selection range: check if any part of this child is selected
-        if (childEnd > selection.start && currentPosition < selection.end) {
-          formatsInSelection.push(childFormat);
-        }
-      } else {
-        // Just a cursor position: find which child contains it
-        if (selection.start >= currentPosition && selection.start <= childEnd) {
-          // At boundary, prefer the next child unless it's the very end
-          if (selection.start === childEnd && childEnd < paragraph.children.reduce((sum, c) => sum + (c.text?.length || 0), 0)) {
-            // Continue to next child
-          } else {
-            return childFormat;
-          }
-        }
-      }
-
-      currentPosition = childEnd;
-    }
-
-    // For range selections, only return a format if ALL selected text has the same format
-    if (hasRange && formatsInSelection.length > 0) {
-      const firstFormat = formatsInSelection[0];
-      const allSame = formatsInSelection.every(f => f === firstFormat);
-      return allSame ? firstFormat : 0;
-    }
-
-    // Fallback to first child's format
-    return paragraph.children[0].format || 0;
-  };
-
-  // Check if a format flag is set
-  const hasFormat = (formatFlags: number, flag: number): boolean => {
-    return (formatFlags & flag) !== 0;
-  };
-
-  // Toggle a format flag
-  const toggleFormat = (currentFormat: number, flag: number): number => {
-    return currentFormat ^ flag;
-  };
-
-  // Get text style based on format flags
-  const getTextStyle = (formatFlags: number): TextStyle => {
-    const style: TextStyle = {};
-
-    if (hasFormat(formatFlags, TEXT_FORMAT_BOLD)) {
-      style.fontWeight = 'bold';
-    }
-
-    if (hasFormat(formatFlags, TEXT_FORMAT_ITALIC)) {
-      style.fontStyle = 'italic';
-    }
-
-    if (hasFormat(formatFlags, TEXT_FORMAT_UNDERLINE)) {
-      style.textDecorationLine = style.textDecorationLine
-        ? `${style.textDecorationLine} underline`
-        : 'underline';
-    }
-
-    if (hasFormat(formatFlags, TEXT_FORMAT_STRIKETHROUGH)) {
-      style.textDecorationLine = style.textDecorationLine
-        ? `${style.textDecorationLine} line-through`
-        : 'line-through';
-    }
-
-    return style;
-  };
-
-  // Get color for association type
-  const getAssociationColor = (type: string): string => {
-    switch (type) {
-      case 'character':
-        return '#4ade80'; // Green
-      case 'place':
-        return '#60a5fa'; // Blue
-      case 'event':
-        return '#f87171'; // Red
-      case 'item':
-        return '#fbbf24'; // Yellow
-      default:
-        return '#9ca3af'; // Gray fallback
-    }
-  };
-
-  // Find association matches in text
-  interface TextSegment {
-    text: string;
-    association?: SimplifiedAssociation;
-  }
-
-  const findAssociationMatches = (text: string): TextSegment[] => {
-    if (!text || associations.length === 0) {
-      return [{ text }];
-    }
-
-    const segments: TextSegment[] = [];
-    let remainingText = text;
-    let currentIndex = 0;
-
-    // Build list of all possible matches (names + aliases)
-    const matchCandidates: Array<{
-      text: string;
-      association: SimplifiedAssociation;
-      caseSensitive: boolean;
-    }> = [];
-
-    associations.forEach((assoc) => {
-      // Add the main name
-      matchCandidates.push({
-        text: assoc.association_name,
-        association: assoc,
-        caseSensitive: assoc.case_sensitive,
-      });
-
-      // Add aliases
-      if (assoc.aliases) {
-        const aliasesArray = assoc.aliases.split(',').map((a) => a.trim()).filter((a) => a);
-        aliasesArray.forEach((alias) => {
-          matchCandidates.push({
-            text: alias,
-            association: assoc,
-            caseSensitive: assoc.case_sensitive,
-          });
-        });
-      }
-    });
-
-    // Sort by length (longest first) to avoid nested matches
-    matchCandidates.sort((a, b) => b.text.length - a.text.length);
-
-    while (remainingText.length > 0) {
-      let foundMatch = false;
-      let bestMatch: { index: number; length: number; association: SimplifiedAssociation } | null = null;
-
-      // Find the earliest match
-      for (const candidate of matchCandidates) {
-        const searchText = candidate.caseSensitive ? remainingText : remainingText.toLowerCase();
-        const matchText = candidate.caseSensitive ? candidate.text : candidate.text.toLowerCase();
-
-        // Use word boundary regex for more accurate matching
-        const escapedMatch = matchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`\\b${escapedMatch}\\b`, candidate.caseSensitive ? '' : 'i');
-        const match = searchText.match(regex);
-
-        if (match && match.index !== undefined) {
-          if (!bestMatch || match.index < bestMatch.index) {
-            bestMatch = {
-              index: match.index,
-              length: match[0].length,
-              association: candidate.association,
-            };
-          }
-        }
-      }
-
-      if (bestMatch) {
-        // Add text before the match
-        if (bestMatch.index > 0) {
-          segments.push({ text: remainingText.substring(0, bestMatch.index) });
-        }
-
-        // Add the matched text with association
-        segments.push({
-          text: remainingText.substring(bestMatch.index, bestMatch.index + bestMatch.length),
-          association: bestMatch.association,
-        });
-
-        // Continue with remaining text
-        remainingText = remainingText.substring(bestMatch.index + bestMatch.length);
-        foundMatch = true;
-      }
-
-      if (!foundMatch) {
-        // No more matches, add remaining text
-        segments.push({ text: remainingText });
-        break;
-      }
-    }
-
-    return segments;
-  };
-
-  // Update paragraph text content
-  const updateParagraphText = (index: number, newText: string) => {
-    // Check if newText contains a newline character (Enter key was pressed)
-    const newlineIndex = newText.indexOf('\n');
-
-    if (newlineIndex !== -1) {
-      // Split at newline instead of allowing it in the paragraph
-      const textBeforeCursor = newText.substring(0, newlineIndex);
-      const textAfterCursor = newText.substring(newlineIndex + 1);
-
-      // Call handleEnterKey with the split position
-      handleEnterKey(index, textBeforeCursor + textAfterCursor, textBeforeCursor.length);
+    // Wait for CSS to be injected first
+    if (!cssInjected) {
       return;
     }
 
-    setParagraphs((prev) => {
-      const updated = [...prev];
-      const paragraph = updated[index];
+    try {
+      const response = await apiGet(`/stories/${storyId}/content?chapter=${currentChapterId}`);
 
-      if (newText === '') {
-        // Empty text - clear children
-        paragraph.children = [];
-      } else {
-        // Preserve formatting when editing by keeping the same children structure
-        // Only update the text content, maintaining existing formats
-        if (paragraph.children.length > 0) {
-          // If multiple formatted children exist, preserve them
-          // This maintains the bold/italic/etc state during editing
-          const totalLength = paragraph.children.reduce((sum, child) => sum + (child.text?.length || 0), 0);
+      if (response.status === 404) {
+        // No content yet, start with empty
+        // Delay to allow editor to initialize
+        setTimeout(() => {
+          editor.setContent('');
+        }, 500);
+        return;
+      }
 
-          // If text length changed significantly or is very different, reset to single child
-          // This handles paste operations and major edits
-          if (Math.abs(newText.length - totalLength) > 10) {
-            const currentFormat = paragraph.children[0].format || 0;
-            paragraph.children = [{
-              text: newText,
-              type: 'text',
-              format: currentFormat,
-            }];
-          } else {
-            // For small edits, update the last child (where cursor usually is)
-            const lastChild = paragraph.children[paragraph.children.length - 1];
-            const currentFormat = lastChild.format || 0;
-            // Simply create a single child with the new text and last format
-            // This is simpler and more predictable than trying to preserve structure
-            paragraph.children = [{
-              text: newText,
-              type: 'text',
-              format: currentFormat,
-            }];
+      if (!response.ok) {
+        throw new Error(`Failed to load content: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.items && data.items.length > 0) {
+      }
+
+      // Store original blocks for preserving key_ids on save
+      if (data.items) {
+        setOriginalBlocks(data.items);
+      }
+
+      // Convert from Lexical format to HTML
+      if (data.items && data.items.length > 0) {
+        // Lexical format bit flags
+        const FORMAT_BOLD = 1;
+        const FORMAT_ITALIC = 2;
+        const FORMAT_STRIKETHROUGH = 4;
+        const FORMAT_UNDERLINE = 8;
+
+        // Convert Lexical blocks to HTML
+        const htmlContent = data.items
+          .map((item: any) => {
+            try {
+              const chunk = JSON.parse(item.chunk.Value);
+
+              // Debug: check for tabs in content
+              if (chunk.children?.some((child: any) => child.text?.includes('\t'))) {
+              }
+
+              // Convert text nodes with formatting
+              const textContent = chunk.children?.map((textNode: any) => {
+                let text = textNode.text || '';
+                const format = textNode.format || 0;
+
+                // Preserve special characters like tabs
+                // Don't HTML-escape them, keep them as-is for pre-wrap to handle
+
+                // Apply formatting by wrapping in HTML tags
+                if (format & FORMAT_BOLD) {
+                  text = `<strong>${text}</strong>`;
+                }
+                if (format & FORMAT_ITALIC) {
+                  text = `<em>${text}</em>`;
+                }
+                if (format & FORMAT_UNDERLINE) {
+                  text = `<u>${text}</u>`;
+                }
+                if (format & FORMAT_STRIKETHROUGH) {
+                  text = `<s>${text}</s>`;
+                }
+
+                return text;
+              }).join('') || '';
+
+              // Note: Alignment is preserved in data but not rendered on mobile
+              return `<p>${textContent}</p>`;
+            } catch (e) {
+              return '<p></p>';
+            }
+          })
+          .join('');
+
+        // Apply association colors to the HTML
+        const coloredHtmlContent = applyAssociationColors(htmlContent, associations);
+
+        // Debug: check if tabs survived
+        const tabCount = (coloredHtmlContent.match(/\t/g) || []).length;
+        if (tabCount > 0) {
+        }
+
+        // Convert tabs to non-breaking spaces (4 spaces per tab)
+        // TenTap strips actual tab characters, so we need to use entities
+        const contentWithVisibleTabs = coloredHtmlContent.replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
+
+
+        // Delay to allow editor to initialize, with retry
+        const trySetContent = (retries = 3) => {
+          try {
+            editor.setContent(contentWithVisibleTabs);
+          } catch (err) {
+            if (retries > 0) {
+              setTimeout(() => trySetContent(retries - 1), 500);
+            } else {
+              console.error('Failed to load content after retries:', err);
+            }
           }
-        } else {
-          // No existing children, create new one
-          paragraph.children = [{
-            text: newText,
-            type: 'text',
-            format: 0,
-          }];
-        }
-      }
+        };
 
-      return updated;
-    });
-
-    setHasUnsavedChanges(true);
-  };
-
-  // Apply text formatting to current paragraph
-  const applyTextFormat = (index: number | null, flag: number) => {
-    if (index === null) return; // No paragraph focused
-
-    const hadSelection = textSelection && textSelection.start !== textSelection.end;
-
-    setParagraphs((prev) => {
-      const updated = [...prev];
-      const paragraph = updated[index];
-
-      // If there's a text selection, format only the selected text
-      if (hadSelection) {
-        const fullText = extractTextFromParagraph(paragraph);
-        const { start, end } = textSelection!;
-
-        const beforeText = fullText.substring(0, start);
-        const selectedText = fullText.substring(start, end);
-        const afterText = fullText.substring(end);
-
-        const currentFormat = getTextFormat(paragraph);
-        const newFormat = toggleFormat(currentFormat, flag);
-
-        // Create new children array with split text nodes
-        const newChildren: Array<{ text: string; type: string; format?: number }> = [];
-
-        if (beforeText) {
-          newChildren.push({ text: beforeText, type: 'text', format: currentFormat });
-        }
-        if (selectedText) {
-          newChildren.push({ text: selectedText, type: 'text', format: newFormat });
-        }
-        if (afterText) {
-          newChildren.push({ text: afterText, type: 'text', format: currentFormat });
-        }
-
-        paragraph.children = newChildren.length > 0 ? newChildren : [
-          { text: '', type: 'text', format: newFormat }
-        ];
+        setTimeout(() => trySetContent(), 500);
       } else {
-        // No selection - format entire paragraph
-        const currentFormat = getTextFormat(paragraph);
-        const newFormat = toggleFormat(currentFormat, flag);
-
-        // Apply format to all children
-        paragraph.children = paragraph.children.map((child) => ({
-          ...child,
-          format: newFormat,
-        }));
-
-        // If no children, create empty text node with format
-        if (paragraph.children.length === 0) {
-          paragraph.children = [
-            {
-              text: '',
-              type: 'text',
-              format: newFormat,
-            },
-          ];
-        }
+        setTimeout(() => {
+          editor.setContent('');
+        }, 500);
       }
-
-      return updated;
-    });
-
-    // If we had a selection, deselect to show the formatted result
-    if (hadSelection) {
-      setFocusedIndex(null);
-      setTextSelection(null);
-    }
-
-    setHasUnsavedChanges(true);
-  };
-
-  // Apply alignment to current paragraph
-  const applyAlignment = (index: number | null, alignment: string) => {
-    if (index === null) return; // No paragraph focused
-
-    setParagraphs((prev) => {
-      const updated = [...prev];
-      updated[index].format = alignment;
-      return updated;
-    });
-
-    setHasUnsavedChanges(true);
-  };
-
-  // Handle Enter key - create new paragraph
-  const handleEnterKey = (index: number, text: string, cursorPosition: number) => {
-    const textBeforeCursor = text.substring(0, cursorPosition);
-    const textAfterCursor = text.substring(cursorPosition);
-
-    setParagraphs((prev) => {
-      const updated = [...prev];
-      const currentParagraph = updated[index];
-
-      // Get current text format to preserve it
-      const currentTextFormat = getTextFormat(currentParagraph);
-
-      // Update current paragraph with text before cursor
-      updated[index].children = textBeforeCursor
-        ? [{ text: textBeforeCursor, type: 'text', format: currentTextFormat }]
-        : [];
-
-      // Create new paragraph with text after cursor
-      // Preserve text formatting but reset alignment
-      const newParagraph = createBlankParagraph();
-      newParagraph.children = [{
-        text: '\t' + textAfterCursor,
-        type: 'text',
-        format: currentTextFormat
-      }];
-
-      // Insert new paragraph after current
-      updated.splice(index + 1, 0, newParagraph);
-
-      return updated;
-    });
-
-    // Focus next paragraph after render
-    setFocusedIndex(index + 1);
-
-    // Set cursor position at the start (after the tab character) after re-render
-    setTimeout(() => {
-      const nextInput = textInputRefs.current.get(index + 1);
-      if (nextInput) {
-        // Position cursor at index 1 (after the tab character)
-        nextInput.setSelection(1, 1);
-      }
-    }, 100);
-
-    setHasUnsavedChanges(true);
-  };
-
-  // Handle Backspace at start of paragraph or on empty paragraph
-  const handleBackspace = (index: number, text: string, cursorPosition: number) => {
-    // Only handle if at start of paragraph or paragraph is empty
-    if ((cursorPosition === 0 || text === '') && paragraphs.length > 1 && index > 0) {
-      const prevIndex = index - 1;
-      let cursorPositionAfterMerge = 0;
-
-      setParagraphs((prev) => {
-        const updated = [...prev];
-
-        if (text !== '' && cursorPosition === 0) {
-          // Merge current paragraph text with previous paragraph
-          const prevParagraph = updated[prevIndex];
-          const currentParagraph = updated[index];
-          const prevText = extractTextFromParagraph(prevParagraph);
-
-          // Save the position where the merge happens (end of previous text)
-          cursorPositionAfterMerge = prevText.length;
-
-          // Get format from previous paragraph
-          const prevFormat = prevParagraph.children.length > 0
-            ? prevParagraph.children[0].format || 0
-            : 0;
-
-          // Append current text to previous paragraph
-          prevParagraph.children = [
-            {
-              text: prevText + text,
-              type: 'text',
-              format: prevFormat,
-            },
-          ];
-        }
-
-        // Delete current paragraph
-        updated.splice(index, 1);
-        return updated;
-      });
-
-      // Focus previous paragraph after render and set cursor position
-      setFocusedIndex(prevIndex);
-
-      // Set cursor position after the component has re-rendered
-      setTimeout(() => {
-        const prevInput = textInputRefs.current.get(prevIndex);
-        if (prevInput && cursorPositionAfterMerge > 0) {
-          prevInput.setSelection(cursorPositionAfterMerge, cursorPositionAfterMerge);
-        }
-      }, 100);
-
-      setHasUnsavedChanges(true);
+    } catch (error) {
+      console.error('Failed to load chapter content:', error);
+      Alert.alert('Error', 'Failed to load chapter content');
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!storyId || !currentChapterId) {
       Alert.alert('Error', 'No story or chapter selected');
       return;
     }
 
+    setSaving(true);
     try {
-      console.log('Saving story...');
 
-      // Convert paragraphs to API format
-      // Each paragraph maintains its full lexical structure:
-      // - type: "custom-paragraph"
-      // - key_id: unique identifier
-      // - children: array of text nodes
-      // - direction, format, indent, version: lexical properties
-      const blocksToSave = paragraphs.map((paragraph, index) => {
-        // Ensure the paragraph has all required lexical properties
-        const lexicalParagraph: LexicalParagraph = {
-          type: paragraph.type || 'custom-paragraph',
-          key_id: paragraph.key_id,
-          children: paragraph.children || [],
-          direction: paragraph.direction || 'ltr',
-          format: paragraph.format || '',
-          indent: paragraph.indent || 0,
-          version: paragraph.version || 1,
+      // Get editor content as HTML
+      const html = await editor.getHTML();
+
+      // Debug: check for tabs in the HTML
+      const tabsInHtml = (html.match(/\t/g) || []).length;
+      const nbspInHtml = (html.match(/&nbsp;/g) || []).length;
+
+      // Extract text from paragraphs using regex
+      const paragraphMatches = html.match(/<p[^>]*>(.*?)<\/p>/gi) || [];
+      if (paragraphMatches.length > 10) {
+      }
+
+      // Lexical format flags
+      const TEXT_FORMAT_BOLD = 1;
+      const TEXT_FORMAT_ITALIC = 2;
+      const TEXT_FORMAT_STRIKETHROUGH = 4;
+      const TEXT_FORMAT_UNDERLINE = 8;
+
+      // Convert to Lexical format
+      const blocks = paragraphMatches.map((pTag, index) => {
+        // Extract content between <p> tags
+        const content = pTag.match(/<p[^>]*>(.*?)<\/p>/i)?.[1] || '';
+
+        // Parse formatted content into text nodes
+        const children: any[] = [];
+
+        // Simple parsing - split by tags and track formatting
+        let currentText = '';
+        let currentFormat = 0;
+        let tempContent = content;
+
+        // Helper to add current text node
+        const flushText = () => {
+          if (currentText) {
+            children.push({
+              text: currentText,
+              type: 'text',
+              format: currentFormat || undefined,
+            });
+            currentText = '';
+          }
+        };
+
+        // Basic HTML entity decoding
+        // Convert sequences of 4 nbsp back to tabs (we use 4 nbsp per tab)
+        // Handle both &nbsp; entities and Unicode U+00A0 characters
+        const nbsp = '\u00A0'; // Non-breaking space character
+
+        // Debug: check what we have before conversion
+        const unicodeNbspCount = (tempContent.match(new RegExp(nbsp, 'g')) || []).length;
+        const entityNbspCount = (tempContent.match(/&nbsp;/g) || []).length;
+        if (unicodeNbspCount > 0 || entityNbspCount > 0) {
+        }
+
+        tempContent = tempContent
+          // First convert Unicode nbsp sequences to tabs
+          .replace(new RegExp(`${nbsp}{4}`, 'g'), '\t')
+          // Then convert HTML entity nbsp sequences to tabs
+          .replace(/(&nbsp;){4}/g, '\t')
+          // Convert remaining nbsp (both forms) to regular spaces
+          .replace(new RegExp(nbsp, 'g'), ' ')
+          .replace(/&nbsp;/g, ' ')
+          // Other entity conversions
+          .replace(/&#9;/g, '\t')  // Preserve tab entities
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&');
+
+        // Debug: check how many tabs we have after conversion
+        const tabsAfterConversion = (tempContent.match(/\t/g) || []).length;
+        if (tabsAfterConversion > 0) {
+        }
+
+        // Parse HTML to preserve formatting (bold, italic, underline, strikethrough)
+        // This is a simple parser that handles basic formatting
+        const parseFormattedHTML = (html: string): any[] => {
+          const nodes: any[] = [];
+          let currentFormat = 0;
+          let currentText = '';
+
+          const flushNode = () => {
+            if (currentText) {
+              // Don't trim individual nodes - preserve all spaces
+              // Only the first/last nodes should be trimmed
+              nodes.push({
+                type: 'text',
+                version: 1,
+                text: currentText,
+                format: currentFormat || 0,
+                mode: 'normal',
+              });
+              currentText = '';
+            }
+          };
+
+          // Simple state machine to track formatting
+          let i = 0;
+          while (i < html.length) {
+            if (html[i] === '<') {
+              // Found a tag
+              const tagEnd = html.indexOf('>', i);
+              if (tagEnd === -1) break;
+
+              const tag = html.substring(i, tagEnd + 1);
+              const tagName = tag.match(/<\/?(\w+)/)?.[1]?.toLowerCase();
+              const isClosing = tag.startsWith('</');
+
+              // Handle formatting tags
+              if (tagName === 'strong' || tagName === 'b') {
+                if (!isClosing) {
+                  flushNode();
+                  currentFormat |= TEXT_FORMAT_BOLD;
+                } else {
+                  flushNode();
+                  currentFormat &= ~TEXT_FORMAT_BOLD;
+                }
+              } else if (tagName === 'em' || tagName === 'i') {
+                if (!isClosing) {
+                  flushNode();
+                  currentFormat |= TEXT_FORMAT_ITALIC;
+                } else {
+                  flushNode();
+                  currentFormat &= ~TEXT_FORMAT_ITALIC;
+                }
+              } else if (tagName === 'u') {
+                if (!isClosing) {
+                  flushNode();
+                  currentFormat |= TEXT_FORMAT_UNDERLINE;
+                } else {
+                  flushNode();
+                  currentFormat &= ~TEXT_FORMAT_UNDERLINE;
+                }
+              } else if (tagName === 's' || tagName === 'strike' || tagName === 'del') {
+                if (!isClosing) {
+                  flushNode();
+                  currentFormat |= TEXT_FORMAT_STRIKETHROUGH;
+                } else {
+                  flushNode();
+                  currentFormat &= ~TEXT_FORMAT_STRIKETHROUGH;
+                }
+              }
+
+              i = tagEnd + 1;
+            } else {
+              // Regular text character
+              currentText += html[i];
+              i++;
+            }
+          }
+
+          flushNode();
+
+          // Trim only the first and last nodes to remove paragraph-level whitespace
+          if (nodes.length > 0) {
+            // Trim leading whitespace from first node (but preserve tabs)
+            nodes[0].text = nodes[0].text.replace(/^[ \r\n]+/, '');
+            // Trim trailing whitespace from last node (but preserve tabs)
+            nodes[nodes.length - 1].text = nodes[nodes.length - 1].text.replace(/[ \r\n]+$/, '');
+            // Remove empty nodes
+            return nodes.filter(node => node.text.length > 0);
+          }
+
+          return nodes;
+        };
+
+        const parsedNodes = parseFormattedHTML(tempContent);
+
+        // Try to preserve original key_id and alignment, or generate new ones
+        let key_id: string;
+        let alignment = '';
+        if (originalBlocks[index]) {
+          try {
+            const originalChunk = JSON.parse(originalBlocks[index].chunk.Value);
+            key_id = originalChunk.key_id;
+            alignment = originalChunk.format || '';
+          } catch (e) {
+            // If parsing fails, generate new key_id
+            key_id = `para-${Date.now()}-${index}`;
+          }
+        } else {
+          // New paragraph, generate new key_id
+          key_id = `para-${Date.now()}-${index}`;
+        }
+
+        // Create Lexical paragraph structure matching web app format
+        const lexicalParagraph = {
+          children: parsedNodes,
+          direction: 'ltr',
+          format: alignment,
+          indent: 0,
+          type: 'custom-paragraph',
+          version: 1,
+          textFormat: 0,
+          textStyle: '',
+          key_id: key_id,
         };
 
         return {
-          key_id: paragraph.key_id,
-          chunk: lexicalParagraph, // Send as object, apiPut will stringify
+          key_id: lexicalParagraph.key_id,
+          chunk: lexicalParagraph, // Send as object, backend will handle marshalling
           place: index.toString(),
         };
       });
 
+      // If no paragraphs, create one empty paragraph
+      if (blocks.length === 0) {
+        const emptyPara = {
+          children: [],
+          direction: 'ltr',
+          format: '',
+          indent: 0,
+          type: 'custom-paragraph',
+          version: 1,
+          textFormat: 0,
+          textStyle: '',
+          key_id: `para-${Date.now()}-0`,
+        };
+        blocks.push({
+          key_id: emptyPara.key_id,
+          chunk: emptyPara, // Send as object, backend will handle marshalling
+          place: '0',
+        });
+      }
+
       const payload = {
         story_id: storyId,
         chapter_id: currentChapterId,
-        blocks: blocksToSave,
+        blocks: blocks,
       };
 
-      console.log('Saving', blocksToSave.length, 'blocks to chapter', currentChapterId);
-      // Log first block as sample to verify format
-      if (blocksToSave.length > 0) {
-        console.log('Sample block chunk:', blocksToSave[0].chunk);
-      }
 
       const response = await apiPut(`/stories/${storyId}`, payload);
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Save failed:', response.status, errorText);
         throw new Error(`Failed to save: ${response.status}`);
       }
 
-      console.log('Save successful');
-      setHasUnsavedChanges(false);
       Alert.alert('Success', 'Story saved successfully');
     } catch (error) {
       console.error('Failed to save story:', error);
       Alert.alert('Error', 'Failed to save story. Please try again.');
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.bgEditor,
-    },
-    centerContainer: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 16,
-    },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 16,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderLight,
-      backgroundColor: colors.bgPrimary,
-    },
-    headerTitle: {
-      flex: 1,
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: colors.textPrimary,
-      textAlign: 'center',
-      marginHorizontal: 8,
-    },
-    backButton: {
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-    },
-    backButtonText: {
-      fontSize: 16,
-      color: colors.primary,
-    },
-    saveButton: {
-      backgroundColor: colors.primary,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 6,
-    },
-    saveButtonText: {
-      color: colors.textPrimary,
-      fontSize: 16,
-      fontWeight: '600',
-    },
-    chapterSelector: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.borderLight,
-      backgroundColor: colors.bgSecondary,
-    },
-    chapterLabel: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.textSecondary,
-      marginRight: 8,
-    },
-    chapterTab: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      marginRight: 8,
-      borderRadius: 6,
-      backgroundColor: colors.bgCard,
-      borderWidth: 1,
-      borderColor: colors.borderMedium,
-    },
-    chapterTabActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    chapterTabText: {
-      fontSize: 14,
-      color: colors.textSecondary,
-    },
-    chapterTabTextActive: {
-      color: colors.textPrimary,
-      fontWeight: '600',
-    },
-    content: {
-      flex: 1,
-      padding: 16,
-    },
-    scrollContent: {
-      paddingBottom: 400,
-    },
-    paragraphInput: {
-      fontSize: 18,
-      color: colors.textPrimary,
-      lineHeight: 28,
-      minHeight: 40,
-      paddingVertical: 8,
-      paddingHorizontal: 4,
-      marginBottom: 4,
-      borderRadius: 4,
-    },
-    formattingToolbar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.bgToolbar,
-      borderRadius: 8,
-      padding: 8,
-      marginBottom: 12,
-      flexWrap: 'wrap',
-    },
-    formatButton: {
-      width: 36,
-      height: 36,
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderRadius: 6,
-      marginRight: 6,
-      backgroundColor: colors.bgCard,
-      borderWidth: 1,
-      borderColor: colors.borderMedium,
-    },
-    formatButtonActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    formatButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: colors.textSecondary,
-    },
-    formatButtonTextActive: {
-      color: colors.textPrimary,
-    },
-    toolbarSeparator: {
-      width: 1,
-      height: 24,
-      backgroundColor: colors.borderMedium,
-      marginHorizontal: 8,
-    },
-    infoBox: {
-      backgroundColor: colors.bgCardHover,
-      padding: 12,
-      borderRadius: 8,
-      marginTop: 24,
-      marginBottom: 32,
-    },
-    infoText: {
-      fontSize: 14,
-      color: colors.textSecondary,
-    },
-    errorText: {
-      fontSize: 16,
-      color: colors.textTertiary,
-      marginBottom: 16,
-    },
-  });
+  }, [storyId, currentChapterId, editor]);
 
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#4285F4" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -1143,37 +671,43 @@ export const StoryEditorScreen = () => {
   if (!story) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Story not found</Text>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backButtonText}>Go Back</Text>
+        <Text style={[styles.errorText, { color: colors.textSecondary }]}>
+          Story not found
+        </Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={[styles.backButtonText, { color: colors.primary }]}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backButtonText}>← Back</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={['top', 'bottom']}>
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.bgPrimary, borderBottomColor: colors.borderLight }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={[styles.backButtonText, { color: colors.primary }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {story.title}
         </Text>
-        <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
-          <Text style={styles.saveButtonText}>Save</Text>
+        <TouchableOpacity
+          onPress={handleSave}
+          style={[styles.saveButton, { backgroundColor: colors.primary }]}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.saveButtonText}>Save</Text>
+          )}
         </TouchableOpacity>
       </View>
 
+      {/* Chapter Selector */}
       {story.chapters.length > 0 && (
-        <View style={styles.chapterSelector}>
-          <Text style={styles.chapterLabel}>Chapter:</Text>
+        <View style={[styles.chapterSelector, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}>
+          <Text style={[styles.chapterLabel, { color: colors.textSecondary }]}>Chapter:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {story.chapters.map((chapter) => (
               <TouchableOpacity
@@ -1181,13 +715,15 @@ export const StoryEditorScreen = () => {
                 onPress={() => setCurrentChapterId(chapter.id)}
                 style={[
                   styles.chapterTab,
-                  currentChapterId === chapter.id && styles.chapterTabActive,
+                  { backgroundColor: colors.bgCard, borderColor: colors.borderMedium },
+                  currentChapterId === chapter.id && { backgroundColor: colors.primary, borderColor: colors.primary },
                 ]}
               >
                 <Text
                   style={[
                     styles.chapterTabText,
-                    currentChapterId === chapter.id && styles.chapterTabTextActive,
+                    { color: colors.textSecondary },
+                    currentChapterId === chapter.id && { color: colors.textPrimary, fontWeight: '600' },
                   ]}
                 >
                   {chapter.title}
@@ -1198,251 +734,253 @@ export const StoryEditorScreen = () => {
         </View>
       )}
 
-      {/* Formatting Toolbar - always visible */}
-      <View style={styles.formattingToolbar}>
-        {(() => {
-          // Get format from focused paragraph, or use defaults
-          const paragraph = focusedIndex !== null && paragraphs[focusedIndex]
-            ? paragraphs[focusedIndex]
-            : null;
-          const textAlign = paragraph ? getTextAlignment(paragraph.format) : 'left';
-          // Use getFormatAtSelection to check format at cursor/selection position
-          const textFormat = paragraph ? getFormatAtSelection(paragraph, textSelection) : 0;
-          const isActive = focusedIndex !== null;
-
-          return (
-            <>
-                {/* Text formatting buttons */}
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    hasFormat(textFormat, TEXT_FORMAT_BOLD) && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyTextFormat(focusedIndex, TEXT_FORMAT_BOLD)}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      hasFormat(textFormat, TEXT_FORMAT_BOLD) && styles.formatButtonTextActive,
-                      { fontWeight: 'bold' },
-                    ]}
-                  >
-                    B
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    hasFormat(textFormat, TEXT_FORMAT_ITALIC) && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyTextFormat(focusedIndex, TEXT_FORMAT_ITALIC)}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      hasFormat(textFormat, TEXT_FORMAT_ITALIC) && styles.formatButtonTextActive,
-                      { fontStyle: 'italic' },
-                    ]}
-                  >
-                    I
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    hasFormat(textFormat, TEXT_FORMAT_UNDERLINE) && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyTextFormat(focusedIndex, TEXT_FORMAT_UNDERLINE)}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      hasFormat(textFormat, TEXT_FORMAT_UNDERLINE) && styles.formatButtonTextActive,
-                      { textDecorationLine: 'underline' },
-                    ]}
-                  >
-                    U
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    hasFormat(textFormat, TEXT_FORMAT_STRIKETHROUGH) && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyTextFormat(focusedIndex, TEXT_FORMAT_STRIKETHROUGH)}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      hasFormat(textFormat, TEXT_FORMAT_STRIKETHROUGH) && styles.formatButtonTextActive,
-                      { textDecorationLine: 'line-through' },
-                    ]}
-                  >
-                    S
-                  </Text>
-                </TouchableOpacity>
-
-                <View style={styles.toolbarSeparator} />
-
-                {/* Alignment buttons */}
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    textAlign === 'left' && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyAlignment(focusedIndex, '')}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      textAlign === 'left' && styles.formatButtonTextActive,
-                    ]}
-                  >
-                    ≡
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    textAlign === 'center' && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyAlignment(focusedIndex, 'center')}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      textAlign === 'center' && styles.formatButtonTextActive,
-                    ]}
-                  >
-                    ≣
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    textAlign === 'right' && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyAlignment(focusedIndex, 'right')}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      textAlign === 'right' && styles.formatButtonTextActive,
-                    ]}
-                  >
-                    ≡
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.formatButton,
-                    textAlign === 'justify' && styles.formatButtonActive,
-                  ]}
-                  onPress={() => applyAlignment(focusedIndex, 'justify')}
-                >
-                  <Text
-                    style={[
-                      styles.formatButtonText,
-                      textAlign === 'justify' && styles.formatButtonTextActive,
-                    ]}
-                  >
-                    ≣
-                  </Text>
-                </TouchableOpacity>
-              </>
-            );
-          })()}
+      {/* Toolbar - at top so keyboard doesn't cover it */}
+      <View style={[styles.toolbarContainer, { backgroundColor: colors.bgToolbar, borderBottomWidth: 1, borderBottomColor: colors.borderLight }]}>
+        <CustomToolbar editor={editor} />
       </View>
 
-      <ScrollView
-        style={styles.content}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.scrollContent}
-      >
-        {paragraphs.map((paragraph, index) => {
-          const text = extractTextFromParagraph(paragraph);
-          const textAlign = getTextAlignment(paragraph.format);
-          const textFormat = getTextFormat(paragraph);
-          const textStyle = getTextStyle(textFormat);
+      {/* Editor */}
+      <View style={styles.editorContainer}>
+        <RichText
+          editor={editor}
+          style={[styles.editor, { backgroundColor: colors.bgEditor }]}
+          injectedJavaScript={`
+            (function() {
+              var autotabEnabled = ${settings.autotab};
 
-          return (
-            <View key={paragraph.key_id}>
-              {focusedIndex === index ? (
-                // Editing mode: show TextInput
-                <TextInput
-                  ref={(ref) => {
-                    if (ref) {
-                      textInputRefs.current.set(index, ref);
-                    } else {
-                      textInputRefs.current.delete(index);
-                    }
-                  }}
-                  style={[styles.paragraphInput, { textAlign }, textStyle]}
-                  placeholder={index === 0 ? 'Start writing your story...' : ''}
-                  placeholderTextColor="#999"
-                  value={text}
-                  onChangeText={(newText) => updateParagraphText(index, newText)}
-                  onFocus={() => setFocusedIndex(index)}
-                  onBlur={() => {
-                    setFocusedIndex(null);
-                    setTextSelection(null);
-                  }}
-                  onSelectionChange={({ nativeEvent: { selection } }) => {
-                    setTextSelection(selection);
-                  }}
-                  onKeyPress={({ nativeEvent }) => {
-                    if (nativeEvent.key === 'Backspace') {
-                      const cursorPos = textSelection?.start ?? 0;
-                      handleBackspace(index, text, cursorPos);
-                    }
-                  }}
-                  multiline
-                  textAlignVertical="top"
-                  blurOnSubmit={false}
-                  returnKeyType="default"
-                  autoFocus
-                />
-              ) : (
-                // Display mode: show Text with formatting and association highlighting
+              // Helper function to insert tab (4 non-breaking spaces)
+              function insertTab() {
+                // Insert 4 non-breaking spaces to represent a tab
+                // TenTap strips actual \\t characters, so we use nbsp entities
+                var tabString = '\\u00A0\\u00A0\\u00A0\\u00A0'; // 4 non-breaking spaces
+                document.execCommand('insertText', false, tabString);
+              }
+
+              // Intercept Tab key to insert tab
+              document.addEventListener('keydown', function(e) {
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  insertTab();
+                }
+
+                // Intercept Enter key to auto-indent new paragraphs (if enabled)
+                if (autotabEnabled && e.key === 'Enter' && !e.shiftKey) {
+                  // Let the default behavior create the new paragraph first
+                  setTimeout(function() {
+                    insertTab();
+                  }, 10);
+                }
+              }, true);
+
+            })();
+            true;
+          `}
+        />
+
+        {/* Floating Associations Button */}
+        {associations.length > 0 && (
+          <TouchableOpacity
+            style={[styles.fab, { backgroundColor: colors.primary }]}
+            onPress={() => setAssociationsListVisible(true)}
+          >
+            <Text style={styles.fabText}>📚</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Associations List Modal */}
+      <Modal
+        visible={associationsListVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setAssociationsListVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <SafeAreaView style={[styles.associationsListPanel, { backgroundColor: colors.bgPrimary }]} edges={['bottom']}>
+            <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
+              <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Associations</Text>
+              <TouchableOpacity onPress={() => setAssociationsListVisible(false)} style={styles.closeButton}>
+                <Text style={[styles.closeButtonText, { color: colors.textSecondary }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.associationsList}>
+              {associations.map((assoc) => (
                 <TouchableOpacity
-                  onPress={() => setFocusedIndex(index)}
-                  activeOpacity={0.7}
+                  key={assoc.association_id}
+                  style={[styles.associationItem, { borderBottomColor: colors.borderLight }]}
+                  onPress={() => {
+                    setAssociationsListVisible(false);
+                    setSelectedAssociationId(assoc.association_id);
+                    setAssociationPanelVisible(true);
+                  }}
                 >
-                  <Text style={[styles.paragraphInput, { textAlign }]}>
-                    {text.length === 0 && index === 0 ? (
-                      <Text style={{ color: '#999' }}>Start writing your story...</Text>
-                    ) : (
-                      renderFormattedChildren(paragraph)
-                    )}
+                  <Text style={[styles.associationName, { color: colors.textPrimary }]}>
+                    {assoc.association_name}
+                  </Text>
+                  {assoc.short_description && (
+                    <Text style={[styles.associationDesc, { color: colors.textSecondary }]} numberOfLines={2}>
+                      {assoc.short_description}
+                    </Text>
+                  )}
+                  <Text style={[styles.associationType, { color: colors.textTertiary }]}>
+                    {assoc.association_type.charAt(0).toUpperCase() + assoc.association_type.slice(1)}
                   </Text>
                 </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            Press Enter to create a new paragraph. Tap a paragraph to edit and use the formatting toolbar above.
-          </Text>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
         </View>
-      </ScrollView>
+      </Modal>
 
+      {/* Association Panel */}
       <AssociationPanel
-        visible={showAssociationPanel}
+        visible={associationPanelVisible}
         associationId={selectedAssociationId}
         storyId={storyId || ''}
         onClose={() => {
-          setShowAssociationPanel(false);
+          setAssociationPanelVisible(false);
           setSelectedAssociationId(null);
         }}
       />
     </SafeAreaView>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginHorizontal: 8,
+  },
+  backButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  backButtonText: {
+    fontSize: 16,
+  },
+  saveButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  chapterSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+  },
+  chapterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginRight: 8,
+  },
+  chapterTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  chapterTabText: {
+    fontSize: 14,
+  },
+  editorContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  editor: {
+    flex: 1,
+    padding: 16,
+  },
+  toolbarContainer: {
+    height: 50,
+    paddingHorizontal: 8,
+  },
+  errorText: {
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  fab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+  },
+  fabText: {
+    fontSize: 24,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  associationsListPanel: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    minHeight: '50%',
+  },
+  closeButton: {
+    padding: 8,
+  },
+  closeButtonText: {
+    fontSize: 24,
+  },
+  associationsList: {
+    flex: 1,
+  },
+  associationItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  associationName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  associationDesc: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  associationType: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+  },
+});

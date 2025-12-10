@@ -30,7 +30,6 @@ export const StoryListScreen = () => {
 
   const loadData = async () => {
     try {
-      console.log('Fetching stories and series with authenticated request...');
 
       // Fetch both stories and series in parallel using authenticated API
       const [storiesResponse, seriesResponse] = await Promise.all([
@@ -38,16 +37,9 @@ export const StoryListScreen = () => {
         apiGet('/series'),
       ]);
 
-      console.log('Stories response:', storiesResponse.status);
-      console.log('Series response:', seriesResponse.status);
 
       if (storiesResponse.ok) {
         const storiesData = await storiesResponse.json();
-        console.log('Loaded stories:', storiesData.length);
-        console.log('Story image URLs:', storiesData.map((s: Story) => ({
-          title: s.title,
-          image_url: s.image_url
-        })));
         setStories(storiesData);
       } else {
         console.error('Failed to fetch stories:', storiesResponse.status);
@@ -55,11 +47,6 @@ export const StoryListScreen = () => {
 
       if (seriesResponse.ok) {
         const seriesData = await seriesResponse.json();
-        console.log('Loaded series:', seriesData.length);
-        console.log('Series image URLs:', seriesData.map((s: Series) => ({
-          title: s.series_title,
-          image_url: s.image_url
-        })));
         setSeries(seriesData);
       } else {
         console.error('Failed to fetch series:', seriesResponse.status);
@@ -150,7 +137,7 @@ export const StoryListScreen = () => {
                 <TouchableOpacity
                   key={story.story_id}
                   style={styles.storyItem}
-                  onPress={() => navigation.navigate('Editor' as never, { storyId: story.story_id } as never)}
+                  onPress={() => (navigation as any).navigate('Editor', { storyId: story.story_id })}
                 >
                   <Image
                     source={{ uri: story.image_url }}
@@ -184,7 +171,7 @@ export const StoryListScreen = () => {
     return (
       <TouchableOpacity
         style={styles.card}
-        onPress={() => navigation.navigate('Editor' as never, { storyId: item.story_id } as never)}
+        onPress={() => (navigation as any).navigate('Editor', { storyId: item.story_id })}
       >
         {hasValidImageUrl ? (
           <Image
