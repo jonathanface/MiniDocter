@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Association } from '../types/associations';
+import { Association } from '../types';
 import { apiGet } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
 

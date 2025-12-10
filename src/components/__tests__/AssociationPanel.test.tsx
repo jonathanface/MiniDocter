@@ -2,7 +2,7 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { AssociationPanel } from '../AssociationPanel';
 import { apiGet } from '../../utils/api';
-import { Association } from '../../types/associations';
+import { Association } from '../../types';
 
 // Mock dependencies
 jest.mock('../../utils/api', () => ({

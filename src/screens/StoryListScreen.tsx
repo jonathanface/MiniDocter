@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Story, Series } from '../../shared/src/types';
+import { Story, Series } from '../types';
 import { apiGet } from '../utils/api';
 import { UserMenu } from '../components/UserMenu';
 import { useTheme } from '../contexts/ThemeContext';
