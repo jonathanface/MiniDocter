@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { UserDetails } from '../../shared/src/types';
+import { UserDetails } from '../types';
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
@@ -28,16 +28,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Handle deep link callback for OAuth
   const handleDeepLinkCallback = async (path: string | null, queryParams: Record<string, string | string[] | undefined> | null | undefined) => {
     if (path !== 'callback' && path !== 'auth/callback') {
-      console.log('[AuthContext] Deep link path did not match auth/callback:', path);
       return;
     }
 
-    console.log('[AuthContext] OAuth callback received via deep link');
 
     // Extract and decode the token from the deep link
     if (queryParams && queryParams.token) {
       try {
-        console.log('[AuthContext] Establishing session with token...');
         const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
         const baseUrl = apiBaseUrl.replace(/\/api$/, '');
 
@@ -53,21 +50,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }),
         });
 
-        console.log('[AuthContext] Session response:', {
-          status: response.status,
-          ok: response.ok,
-          statusText: response.statusText,
-        });
-
         if (response.ok) {
           const data = await response.json();
-          console.log('[AuthContext] Session response data:', data);
-          console.log('[AuthContext] Session established for:', data.user?.email || data.user?.Email);
 
           // Store the session token securely
           if (data.sessionToken) {
             await SecureStore.setItemAsync(SESSION_TOKEN_KEY, data.sessionToken);
-            console.log('[AuthContext] Session token stored securely');
           }
 
           setUser(data.user);
@@ -90,23 +78,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await checkSession();
       }
     } else {
-      console.log('[AuthContext] No token in deep link, checking session...');
       await checkSession();
     }
   };
 
   useEffect(() => {
-    console.log('[AuthContext] useEffect - Setting up deep link listener');
 
     // Check if app was opened with a deep link (handles cold start case)
     const checkInitialURL = async () => {
       const initialUrl = await Linking.getInitialURL();
-      console.log('[AuthContext] Initial URL:', initialUrl);
       if (initialUrl) {
         const { path, queryParams } = Linking.parse(initialUrl);
-        console.log('[AuthContext] Initial URL parsed:', { path, queryParams });
         if (path === 'callback' || path === 'auth/callback') {
-          console.log('[AuthContext] Processing initial OAuth callback');
           await handleDeepLinkCallback(path, queryParams);
         }
       }
@@ -120,18 +103,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for deep link redirects from OAuth
     const subscription = Linking.addEventListener('url', async (event) => {
-      console.log('[AuthContext] Deep link received:', event.url);
       const { path, queryParams } = Linking.parse(event.url);
-      console.log('[AuthContext] Parsed deep link:', { path, queryParams });
       await handleDeepLinkCallback(path, queryParams);
     });
 
     // Mark listener as ready
-    console.log('[AuthContext] Deep link listener registered');
     setListenerReady(true);
 
     return () => {
-      console.log('[AuthContext] Removing deep link listener');
       subscription.remove();
     };
   }, []);
@@ -139,16 +118,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkSession = async () => {
     try {
       const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
-      console.log('Checking session at:', `${apiBaseUrl}/user`);
 
       const response = await fetch(`${apiBaseUrl}/user`, {
         credentials: 'include', // Important: send cookies
-      });
-
-      console.log('Session check response:', {
-        status: response.status,
-        ok: response.ok,
-        contentType: response.headers.get('content-type')
       });
 
       if (response.ok) {
@@ -158,7 +130,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const userData = await response.json();
             setUser(userData);
-            console.log('Session valid, user logged in:', userData.email);
           } catch (jsonError) {
             console.error('Failed to parse JSON from /user endpoint:', jsonError);
             setUser(null);
@@ -170,7 +141,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // No valid session (expected on initial mobile app load)
         setUser(null);
-        console.log('No valid session found (status:', response.status, ')');
       }
     } catch (error) {
       console.error('Session check failed:', error);
@@ -183,7 +153,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = async (provider: 'google' | 'amazon') => {
     try {
       setIsLoading(true);
-      console.log('[AuthContext] signIn called, listenerReady:', listenerReady);
 
       // Open backend OAuth endpoint with custom redirect
       const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
@@ -192,16 +161,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const redirectUrl = 'minidocter://auth/callback';
       const authUrl = `${baseUrl}/auth/${provider}?next=${encodeURIComponent(redirectUrl)}`;
 
-      console.log('[AuthContext] Opening OAuth URL:', authUrl);
 
       // Open OAuth flow in browser
       const result = await WebBrowser.openBrowserAsync(authUrl);
 
-      console.log('[AuthContext] Browser closed with result:', result);
 
       // If browser was dismissed without redirect, user might have cancelled
       if (result.type === 'cancel') {
-        console.log('User cancelled OAuth flow');
         throw new Error('Authentication cancelled');
       }
 
@@ -233,7 +199,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               'Authorization': `Bearer ${sessionToken}`,
             },
           });
-          console.log('Logout request sent to backend');
         } catch (error) {
           console.error('Failed to call backend logout:', error);
           // Continue with local logout even if backend call fails
@@ -242,7 +207,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Clear session token from secure storage
       await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
-      console.log('Session token cleared');
       setUser(null);
     } catch (error) {
       console.error('Sign out failed:', error);

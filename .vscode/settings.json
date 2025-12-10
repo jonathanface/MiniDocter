@@ -1,0 +1,24 @@
+{
+  // Disable spell checker warnings
+  "cSpell.enabled": false,
+
+  // Disable TypeScript's spell checking suggestions
+  "typescript.suggest.enabled": true,
+  "javascript.suggest.enabled": true,
+
+  // Additional spell checker settings (for cSpell extension if installed)
+  "cSpell.diagnosticLevel": "Hint",
+  "cSpell.showStatus": false,
+
+  // Format settings
+  "editor.formatOnSave": false,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "never"
+  },
+
+  // File associations
+  "files.associations": {
+    "*.tsx": "typescriptreact",
+    "*.ts": "typescript"
+  }
+}
