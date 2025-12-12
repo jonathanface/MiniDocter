@@ -1,10 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { $getRoot, $createParagraphNode, $createTextNode, $getSelection, $setSelection, $createRangeSelection, $isRangeSelection, TextNode, ElementNode, KEY_ENTER_COMMAND, COMMAND_PRIORITY_LOW, LexicalNode } from 'lexical';
+import { $getRoot, $createParagraphNode, $createTextNode, $getSelection, $setSelection, $createRangeSelection, $isRangeSelection, TextNode, ElementNode, KEY_ENTER_COMMAND, COMMAND_PRIORITY_LOW } from 'lexical';
+import type { LexicalNode } from 'lexical';
 import type { Association, BackendData, BackendItem, ExportedBlock, TextNodeData, ParagraphChunk, SelectionInfo, SearchPattern } from './types';
 import './App.css';
 
