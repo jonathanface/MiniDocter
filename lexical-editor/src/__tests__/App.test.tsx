@@ -421,7 +421,7 @@ describe('App', () => {
       const mockParagraph = {
         getType: jest.fn(() => 'paragraph'),
         getChildren: jest.fn(() => [mockTextNode]),
-        getFormat: jest.fn(() => 'center'),
+        getFormatType: jest.fn(() => 'center'),
         getIndent: jest.fn(() => 2),
       };
 

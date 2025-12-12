@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { apiGet, apiPut } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAssociations } from '../hooks/useAssociations';
@@ -47,6 +48,13 @@ export const StoryEditorScreen = () => {
   const [associationPanelVisible, setAssociationPanelVisible] = useState(false);
   const [selectedAssociationId, setSelectedAssociationId] = useState<string | null>(null);
   const [associationsListVisible, setAssociationsListVisible] = useState(false);
+
+  // Formatting state
+  const [isBold, setIsBold] = useState(false);
+  const [isItalic, setIsItalic] = useState(false);
+  const [isUnderline, setIsUnderline] = useState(false);
+  const [isStrikethrough, setIsStrikethrough] = useState(false);
+  const [alignment, setAlignment] = useState<'left' | 'center' | 'right' | 'justify'>('left');
 
   // Fetch associations for coloring text
   const { associations } = useAssociations(storyId);
@@ -118,11 +126,9 @@ export const StoryEditorScreen = () => {
       }
 
       const data = await response.json();
-      console.log('[StoryEditor] Loading content:', JSON.stringify(data).substring(0, 200));
 
       // Send Lexical data directly to editor - no conversion needed!
       editorRef.current?.setContent(data);
-      console.log('[StoryEditor] setContent called');
     } catch (error) {
       console.error('Failed to load chapter content:', error);
       Alert.alert('Error', 'Failed to load chapter content');
@@ -151,9 +157,6 @@ export const StoryEditorScreen = () => {
         chapter_id: currentChapterId,
         blocks: content.blocks || [],
       };
-
-      console.log('[StoryEditor] Saving content, block count:', payload.blocks.length);
-      console.log('[StoryEditor] First block:', JSON.stringify(payload.blocks[0]).substring(0, 200));
 
       const response = await apiPut(`/stories/${storyId}`, payload);
 
@@ -246,6 +249,87 @@ export const StoryEditorScreen = () => {
         </View>
       )}
 
+      {/* Formatting Toolbar */}
+      <View style={[styles.formattingToolbar, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolbarContent}>
+          {/* Text Formatting */}
+          <TouchableOpacity
+            style={[styles.formatButton, isBold && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyFormat('bold')}
+          >
+            <Text style={[styles.formatButtonText, { color: isBold ? colors.textPrimary : colors.textSecondary }]}>B</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.formatButton, isItalic && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyFormat('italic')}
+          >
+            <Text style={[styles.formatButtonText, styles.italicText, { color: isItalic ? colors.textPrimary : colors.textSecondary }]}>I</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.formatButton, isUnderline && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyFormat('underline')}
+          >
+            <Text style={[styles.formatButtonText, styles.underlineText, { color: isUnderline ? colors.textPrimary : colors.textSecondary }]}>U</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.formatButton, isStrikethrough && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyFormat('strikethrough')}
+          >
+            <Text style={[styles.formatButtonText, styles.strikethroughText, { color: isStrikethrough ? colors.textPrimary : colors.textSecondary }]}>S</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderMedium }]} />
+
+          {/* Paragraph Alignment */}
+          <TouchableOpacity
+            style={[styles.formatButton, alignment === 'left' && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyAlignment('left')}
+          >
+            <MaterialIcons
+              name="format-align-left"
+              size={20}
+              color={alignment === 'left' ? colors.textPrimary : colors.textSecondary}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.formatButton, alignment === 'center' && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyAlignment('center')}
+          >
+            <MaterialIcons
+              name="format-align-center"
+              size={20}
+              color={alignment === 'center' ? colors.textPrimary : colors.textSecondary}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.formatButton, alignment === 'right' && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyAlignment('right')}
+          >
+            <MaterialIcons
+              name="format-align-right"
+              size={20}
+              color={alignment === 'right' ? colors.textPrimary : colors.textSecondary}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.formatButton, alignment === 'justify' && { backgroundColor: colors.primary }]}
+            onPress={() => editorRef.current?.applyAlignment('justify')}
+          >
+            <MaterialIcons
+              name="format-align-justify"
+              size={20}
+              color={alignment === 'justify' ? colors.textPrimary : colors.textSecondary}
+            />
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+
       {/* Editor */}
       <View style={styles.editorContainer}>
         <LexicalEditor
@@ -256,12 +340,18 @@ export const StoryEditorScreen = () => {
           autotab={settings.autotab}
           spellcheck={settings.spellcheck}
           onSave={(content) => {
-            console.log('[Editor] Save requested from editor', content);
+            // Save triggered from editor
           }}
           onAssociationClick={(association) => {
-            console.log('[Editor] Association clicked:', association);
             setSelectedAssociationId(association.association_id);
             setAssociationPanelVisible(true);
+          }}
+          onFormatChange={(formatState) => {
+            setIsBold(formatState.isBold);
+            setIsItalic(formatState.isItalic);
+            setIsUnderline(formatState.isUnderline);
+            setIsStrikethrough(formatState.isStrikethrough);
+            setAlignment(formatState.alignment || 'left');
           }}
         />
 
@@ -398,6 +488,42 @@ const styles = StyleSheet.create({
   },
   chapterTabText: {
     fontSize: 14,
+  },
+  formattingToolbar: {
+    borderBottomWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  toolbarContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  formatButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 2,
+  },
+  formatButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  italicText: {
+    fontStyle: 'italic',
+  },
+  underlineText: {
+    textDecorationLine: 'underline',
+  },
+  strikethroughText: {
+    textDecorationLine: 'line-through',
+  },
+  divider: {
+    width: 1,
+    height: 24,
+    marginHorizontal: 8,
   },
   editorContainer: {
     flex: 1,

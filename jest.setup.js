@@ -40,6 +40,14 @@ jest.mock('expo-linking', () => ({
   createURL: jest.fn(),
 }));
 
+// Mock @expo/vector-icons
+jest.mock('@expo/vector-icons', () => ({
+  MaterialIcons: 'MaterialIcons',
+  MaterialCommunityIcons: 'MaterialCommunityIcons',
+  Ionicons: 'Ionicons',
+  FontAwesome: 'FontAwesome',
+}));
+
 // Mock react-native
 jest.mock('react-native', () => ({
   Platform: {
