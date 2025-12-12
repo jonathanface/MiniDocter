@@ -7,6 +7,7 @@ import { Association } from '../hooks/useAssociations';
 interface LexicalEditorProps {
   onContentChange?: (content: any) => void;
   onSave?: (content: any) => void;
+  onAssociationClick?: (association: Association) => void;
   backgroundColor?: string;
   textColor?: string;
   associations?: Association[];
@@ -21,7 +22,7 @@ export interface LexicalEditorRef {
 }
 
 export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
-  ({ onContentChange, onSave, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true }, ref) => {
+  ({ onContentChange, onSave, onAssociationClick, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const editorReadyRef = useRef(false);
     const pendingContentRef = useRef<any>(null);
@@ -136,6 +137,10 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
                 JSON.stringify({ type: 'setSpellcheck', payload: spellcheck })
               );
             }
+            break;
+          case 'associationClicked':
+            console.log('[Lexical] Association clicked:', data.payload);
+            onAssociationClick?.(data.payload);
             break;
           case 'error':
             console.error('[Lexical] Error:', data.payload);

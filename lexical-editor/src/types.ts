@@ -71,6 +71,7 @@ export interface SelectionInfo {
 export interface SearchPattern {
   regex: RegExp;
   color: string;
+  association: Association;
 }
 
 declare global {

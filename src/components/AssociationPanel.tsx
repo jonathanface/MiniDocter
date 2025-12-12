@@ -98,10 +98,22 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       borderBottomWidth: 1,
       borderBottomColor: colors.borderLight,
     },
+    headerTitleContainer: {
+      flex: 1,
+      marginRight: 8,
+    },
     headerTitle: {
       fontSize: 20,
       fontWeight: 'bold',
       color: colors.textPrimary,
+    },
+    headerSubtitle: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+      marginTop: 2,
     },
     closeButton: {
       padding: 8,
@@ -180,7 +192,18 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
         <SafeAreaView style={styles.panel} edges={['bottom']}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Association</Text>
+            <View style={styles.headerTitleContainer}>
+              {association ? (
+                <>
+                  <Text style={styles.headerTitle} numberOfLines={1}>
+                    {association.association_name}
+                  </Text>
+                  <Text style={styles.headerSubtitle}>ASSOCIATION</Text>
+                </>
+              ) : (
+                <Text style={styles.headerTitle}>Association</Text>
+              )}
+            </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
@@ -216,9 +239,6 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
                     />
                   </View>
                 )}
-
-                {/* Name */}
-                <Text style={styles.name}>{association.association_name}</Text>
 
                 {/* Short Description */}
                 {association.short_description && (

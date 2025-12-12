@@ -29,6 +29,7 @@ function EditorPlugin() {
   const isHighlightingRef = useRef(false); // Prevent infinite loop during highlighting
   const originalItemsRef = useRef<BackendItem[]>([]); // Store original items to preserve key_ids
   const associationsRef = useRef<Association[]>([]); // Store associations for color mapping
+  const associationMapRef = useRef<Map<string, Association>>(new Map()); // Map text content to association for click handling
   const autotabRef = useRef(false); // Store autotab setting
   const spellCheckRef = useRef(true); // Store spellcheck setting
 
@@ -240,6 +241,9 @@ function EditorPlugin() {
       isHighlightingRef.current = true;
       console.log('[Lexical App] Highlighting', associationsRef.current.length, 'associations');
 
+      // Clear association map before rebuilding
+      associationMapRef.current.clear();
+
       // Save current selection info to restore after highlighting
       let savedSelectionInfo: SelectionInfo | null = null;
 
@@ -311,6 +315,7 @@ function EditorPlugin() {
           searchPatterns.push({
             regex,
             color,
+            association: assoc,
           });
         }
       }
@@ -353,7 +358,7 @@ function EditorPlugin() {
             const originalFormat = node.getFormat();
 
             // Find all matches in this text node
-            const matches: Array<{ start: number; end: number; color: string }> = [];
+            const matches: Array<{ start: number; end: number; color: string; association: Association }> = [];
 
             for (const pattern of searchPatterns) {
               // Reset regex lastIndex for each text node
@@ -372,7 +377,7 @@ function EditorPlugin() {
                 );
 
                 if (!overlaps) {
-                  matches.push({ start, end, color: pattern.color });
+                  matches.push({ start, end, color: pattern.color, association: pattern.association });
                 }
               }
             }
@@ -402,10 +407,14 @@ function EditorPlugin() {
               }
 
               // Matched text (colored)
-              const matched = $createTextNode(text.substring(match.start, match.end));
+              const matchedText = text.substring(match.start, match.end);
+              const matched = $createTextNode(matchedText);
               matched.setFormat(originalFormat);
               matched.setStyle(`color: ${match.color}`);
               newNodes.push(matched);
+
+              // Store association mapping for click handling (case-insensitive key)
+              associationMapRef.current.set(matchedText.toLowerCase(), match.association);
 
               lastIndex = match.end;
             }
@@ -532,6 +541,65 @@ function EditorPlugin() {
     window.addEventListener('message', handleMessage);
     document.addEventListener('message', handleMessage as unknown as EventListener);
     console.log('[Lexical App] Message listeners registered on window and document');
+
+    // Handle clicks on associations
+    function handleAssociationClick(event: Event) {
+      const target = event.target as HTMLElement;
+
+      // Check if the clicked element or its parent has colored text
+      let textElement: HTMLElement | null = target;
+      let attempts = 0;
+      const maxAttempts = 3; // Check up to 3 parent levels
+
+      while (textElement && attempts < maxAttempts) {
+        const computedStyle = window.getComputedStyle(textElement);
+        const color = computedStyle.color;
+
+        // Check if this element has one of our association colors
+        const hasAssociationColor = Object.values(ASSOCIATION_COLORS).some(assocColor => {
+          // Convert hex to RGB for comparison
+          const hexToRgb = (hex: string): string => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgb(${r}, ${g}, ${b})`;
+          };
+          return color === hexToRgb(assocColor);
+        });
+
+        if (hasAssociationColor && textElement.textContent) {
+          const text = textElement.textContent.trim();
+          const association = associationMapRef.current.get(text.toLowerCase());
+
+          if (association) {
+            // Immediately stop the event from propagating
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+
+            // Blur the editor to prevent keyboard from showing
+            const contentEditableElement = document.querySelector('.editor-input') as HTMLElement;
+            if (contentEditableElement) {
+              contentEditableElement.blur();
+            }
+
+            console.log('[Lexical App] Association clicked:', association);
+            sendMessage('associationClicked', association);
+            return;
+          }
+        }
+
+        textElement = textElement.parentElement;
+        attempts++;
+      }
+    }
+
+    // Add click listener to the editor (using capture phase to intercept before editor handles it)
+    const contentEditableElement = document.querySelector('.editor-input');
+    if (contentEditableElement) {
+      contentEditableElement.addEventListener('click', handleAssociationClick, true); // true = capture phase
+      console.log('[Lexical App] Click handler registered on editor');
+    }
 
     // Initialize with empty content
     editor.update(() => {
@@ -670,6 +738,10 @@ function EditorPlugin() {
     return () => {
       window.removeEventListener('message', handleMessage);
       document.removeEventListener('message', handleMessage as unknown as EventListener);
+      const contentEditableElement = document.querySelector('.editor-input');
+      if (contentEditableElement) {
+        contentEditableElement.removeEventListener('click', handleAssociationClick, true); // true = capture phase
+      }
       removeEnterCommand();
     };
   }, [editor]);
