@@ -258,6 +258,11 @@ export const StoryEditorScreen = () => {
           onSave={(content) => {
             console.log('[Editor] Save requested from editor', content);
           }}
+          onAssociationClick={(association) => {
+            console.log('[Editor] Association clicked:', association);
+            setSelectedAssociationId(association.association_id);
+            setAssociationPanelVisible(true);
+          }}
         />
 
         {/* Floating Associations Button */}

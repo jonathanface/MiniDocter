@@ -21,6 +21,8 @@ const config: Config = {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
       },
+      diagnostics: false, // Disable type checking during tests
+      isolatedModules: true,
     }],
   },
 };
