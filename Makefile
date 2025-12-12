@@ -49,6 +49,11 @@ logcat-app:
 	@echo "Showing app logs (Ctrl+C to stop)..."
 	adb logcat | grep -E "ReactNativeJS|AndroidRuntime"
 
+.PHONY: reload
+reload:
+	@echo "Reloading React Native app..."
+	adb shell input text "RR"
+
 # Build shortcuts
 .PHONY: build-debug
 build-debug:
@@ -84,6 +89,42 @@ start-clear:
 	@echo "Starting Expo dev server (clearing cache)..."
 	npx expo start --clear
 
+# Test commands
+.PHONY: test
+test:
+	@echo "Running all tests..."
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Running React Native tests..."
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	npm test
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Running Lexical Editor tests..."
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	npm test --workspace=lexical-editor
+
+.PHONY: test-rn
+test-rn:
+	@echo "Running React Native tests..."
+	npm test
+
+.PHONY: test-lexical
+test-lexical:
+	@echo "Running Lexical Editor tests..."
+	npm test --workspace=lexical-editor
+
+.PHONY: test-watch
+test-watch:
+	@echo "Running all tests in watch mode..."
+	@echo "Note: Running React Native tests in watch mode."
+	@echo "Open another terminal and run 'make test-lexical-watch' for lexical tests."
+	npm test -- --watch
+
+.PHONY: test-watch-lexical
+test-watch-lexical:
+	@echo "Running Lexical Editor tests in watch mode..."
+	npm test --workspace=lexical-editor -- --watch
+
 # Combined workflows
 .PHONY: setup
 setup: kill-server connect devices
@@ -104,6 +145,7 @@ help:
 	@echo "  make kill-server     - Restart ADB server"
 	@echo "  make logcat          - Show error logs"
 	@echo "  make logcat-app      - Show app-specific logs"
+	@echo "  make reload          - Reload the React Native app"
 	@echo ""
 	@echo "Build Commands:"
 	@echo "  make build-debug     - Build debug APK"
@@ -115,6 +157,13 @@ help:
 	@echo "Development Commands:"
 	@echo "  make start           - Start Expo dev server"
 	@echo "  make start-clear     - Start Expo dev server (clear cache)"
+	@echo ""
+	@echo "Test Commands:"
+	@echo "  make test            - Run all tests (React Native + Lexical Editor)"
+	@echo "  make test-rn         - Run React Native tests only"
+	@echo "  make test-lexical    - Run Lexical Editor tests only"
+	@echo "  make test-watch      - Run React Native tests in watch mode"
+	@echo "  make test-watch-lexical - Run Lexical Editor tests in watch mode"
 	@echo ""
 	@echo "Workflows:"
 	@echo "  make setup           - Reset ADB and connect to phone"

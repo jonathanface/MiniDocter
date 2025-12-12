@@ -2,6 +2,9 @@
   "name": "minidocter",
   "version": "1.0.0",
   "main": "index.ts",
+  "workspaces": [
+    "lexical-editor"
+  ],
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -11,7 +14,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "precheck": "bash scripts/pre-push-check.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:lexical": "npm run build --workspace=lexical-editor && node scripts/bundle-lexical-html.js"
   },
   "dependencies": {
     "@10play/tentap-editor": "^1.0.1",
@@ -36,6 +40,7 @@
   "devDependencies": {
     "@babel/preset-env": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
+    "@lexical/rich-text": "^0.23.1",
     "@testing-library/jest-native": "^5.4.3",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^30.0.0",
@@ -43,6 +48,7 @@
     "babel-jest": "^30.2.0",
     "jest": "^30.2.0",
     "jest-expo": "^54.0.14",
+    "lexical": "^0.23.1",
     "ts-jest": "^29.4.6",
     "typescript": "~5.9.2"
   },
