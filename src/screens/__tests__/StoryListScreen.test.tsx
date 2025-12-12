@@ -468,11 +468,11 @@ describe('StoryListScreen', () => {
       } as Response);
     });
 
-    it('should render header with My Works title', async () => {
+    it('should render header with Stories title', async () => {
       const { getByText } = render(<StoryListScreen />);
 
       await waitFor(() => {
-        expect(getByText('My Works')).toBeTruthy();
+        expect(getByText('Stories')).toBeTruthy();
       });
     });
 

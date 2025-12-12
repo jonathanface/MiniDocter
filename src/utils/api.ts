@@ -19,6 +19,7 @@ export const authenticatedFetch = async (
   // Prepare headers as a plain object for easy manipulation
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true', // Bypass ngrok warning page
     ...(options.headers as Record<string, string> || {}),
   };
 

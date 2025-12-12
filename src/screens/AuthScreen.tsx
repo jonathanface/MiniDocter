@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -35,7 +36,12 @@ export const AuthScreen = () => {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>MiniDocter</Text>
+        <Image
+          source={require('../../assets/img/logo_trans_scaled.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Text style={styles.title}>Docter.io</Text>
         <Text style={styles.subtitle}>Your writing companion</Text>
 
         <View style={styles.buttonContainer}>
@@ -67,7 +73,7 @@ export const AuthScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#e0e0e0', // Medium gray - between light and dark mode
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -76,8 +82,13 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignItems: 'center',
   },
+  logo: {
+    width: 250,
+    height: 100,
+    marginBottom: 8,
+  },
   title: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 8,

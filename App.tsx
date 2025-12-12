@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { StoryListScreen } from './src/screens/StoryListScreen';
+import { CreateStoryScreen } from './src/screens/CreateStoryScreen';
 import { StoryEditorScreen } from './src/screens/StoryEditorScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
@@ -32,6 +33,11 @@ function AppNavigator() {
             <Stack.Screen
               name="StoryList"
               component={StoryListScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="CreateStory"
+              component={CreateStoryScreen}
               options={{ headerShown: false }}
             />
             <Stack.Screen
