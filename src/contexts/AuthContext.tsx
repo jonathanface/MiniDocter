@@ -43,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
           },
           credentials: 'include',
           body: JSON.stringify({
@@ -120,6 +121,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
 
       const response = await fetch(`${apiBaseUrl}/user`, {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
         credentials: 'include', // Important: send cookies
       });
 
@@ -197,6 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             method: 'DELETE',
             headers: {
               'Authorization': `Bearer ${sessionToken}`,
+              'ngrok-skip-browser-warning': 'true',
             },
           });
         } catch (error) {

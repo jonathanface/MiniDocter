@@ -19,6 +19,7 @@ export const authenticatedFetch = async (
   // Prepare headers as a plain object for easy manipulation
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true', // Bypass ngrok warning page
     ...(options.headers as Record<string, string> || {}),
   };
 
@@ -80,5 +81,29 @@ export const apiDelete = async (endpoint: string): Promise<Response> => {
   const baseUrl = getApiBaseUrl();
   return authenticatedFetch(`${baseUrl}${endpoint}`, {
     method: 'DELETE',
+  });
+};
+
+/**
+ * Billing API helpers
+ */
+export const getBillingSummary = async () => {
+  const baseUrl = getApiBaseUrl();
+  // Remove /api suffix if present and add /billing/summary
+  const url = baseUrl.replace(/\/api$/, '') + '/billing/summary';
+  return authenticatedFetch(url, {
+    method: 'GET',
+  });
+};
+
+export const createPortalSession = async (returnUrl: string) => {
+  const baseUrl = getApiBaseUrl();
+  // Remove /api suffix if present and add /billing/portal-session
+  const url = baseUrl.replace(/\/api$/, '') + '/billing/portal-session';
+  return authenticatedFetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Return-Url': returnUrl,
+    },
   });
 };

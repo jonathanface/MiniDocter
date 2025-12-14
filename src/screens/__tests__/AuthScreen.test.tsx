@@ -25,7 +25,7 @@ describe('AuthScreen', () => {
     it('should render the auth screen with title and subtitle', () => {
       const { getByText } = render(<AuthScreen />);
 
-      expect(getByText('MiniDocter')).toBeTruthy();
+      expect(getByText('Docter.io')).toBeTruthy();
       expect(getByText('Your writing companion')).toBeTruthy();
     });
 

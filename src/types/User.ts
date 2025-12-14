@@ -10,3 +10,10 @@ export interface User {
   isLoggedIn: boolean;
   userDetails: UserDetails;
 }
+
+export interface SubscriptionSummary {
+  id?: string;
+  status: string;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+}

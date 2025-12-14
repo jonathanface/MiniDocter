@@ -316,6 +316,7 @@ describe('AuthContext', () => {
           method: 'DELETE',
           headers: {
             Authorization: 'Bearer session-token-123',
+            'ngrok-skip-browser-warning': 'true',
           },
         })
       );

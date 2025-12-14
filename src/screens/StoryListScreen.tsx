@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Story, Series } from '../types';
 import { apiGet } from '../utils/api';
 import { UserMenu } from '../components/UserMenu';
@@ -24,11 +24,7 @@ export const StoryListScreen = () => {
   const [loading, setLoading] = useState(true);
   const [expandedSeries, setExpandedSeries] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
 
       // Fetch both stories and series in parallel using authenticated API
@@ -56,7 +52,14 @@ export const StoryListScreen = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Load data on mount and when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const toggleSeriesExpanded = (seriesId: string) => {
     setExpandedSeries(prev => {
@@ -386,8 +389,11 @@ export const StoryListScreen = () => {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <UserMenu />
-        <Text style={styles.headerTitle}>My Works</Text>
-        <TouchableOpacity style={styles.newButton}>
+        <Text style={styles.headerTitle}>Stories</Text>
+        <TouchableOpacity
+          style={styles.newButton}
+          onPress={() => (navigation as any).navigate('CreateStory')}
+        >
           <Text style={styles.newButtonText}>+ New</Text>
         </TouchableOpacity>
       </View>
