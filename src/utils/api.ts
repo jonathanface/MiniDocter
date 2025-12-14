@@ -83,3 +83,27 @@ export const apiDelete = async (endpoint: string): Promise<Response> => {
     method: 'DELETE',
   });
 };
+
+/**
+ * Billing API helpers
+ */
+export const getBillingSummary = async () => {
+  const baseUrl = getApiBaseUrl();
+  // Remove /api suffix if present and add /billing/summary
+  const url = baseUrl.replace(/\/api$/, '') + '/billing/summary';
+  return authenticatedFetch(url, {
+    method: 'GET',
+  });
+};
+
+export const createPortalSession = async (returnUrl: string) => {
+  const baseUrl = getApiBaseUrl();
+  // Remove /api suffix if present and add /billing/portal-session
+  const url = baseUrl.replace(/\/api$/, '') + '/billing/portal-session';
+  return authenticatedFetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Return-Url': returnUrl,
+    },
+  });
+};

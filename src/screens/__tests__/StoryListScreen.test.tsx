@@ -10,6 +10,10 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: jest.fn(() => ({
     navigate: mockNavigate,
   })),
+  useFocusEffect: jest.fn((callback) => {
+    // Call the callback immediately to simulate focus
+    callback();
+  }),
 }));
 
 jest.mock('../../utils/api');
@@ -273,10 +277,11 @@ describe('StoryListScreen', () => {
         } as Response);
       });
 
-      const { getByText } = render(<StoryListScreen />);
+      const { getAllByText } = render(<StoryListScreen />);
 
       await waitFor(() => {
-        expect(getByText('Stories')).toBeTruthy();
+        // "Stories" appears multiple times (header and section), so use getAllByText
+        expect(getAllByText('Stories').length).toBeGreaterThan(0);
       });
     });
 
@@ -300,11 +305,11 @@ describe('StoryListScreen', () => {
         } as Response);
       });
 
-      const { getByText } = render(<StoryListScreen />);
+      const { getAllByText } = render(<StoryListScreen />);
 
       await waitFor(() => {
-        expect(getByText('Series')).toBeTruthy();
-        expect(getByText('Stories')).toBeTruthy();
+        expect(getAllByText('Series').length).toBeGreaterThan(0);
+        expect(getAllByText('Stories').length).toBeGreaterThan(0);
       });
     });
   });

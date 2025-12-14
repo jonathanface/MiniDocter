@@ -10,6 +10,8 @@ import { StoryListScreen } from './src/screens/StoryListScreen';
 import { CreateStoryScreen } from './src/screens/CreateStoryScreen';
 import { StoryEditorScreen } from './src/screens/StoryEditorScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { AccountScreen } from './src/screens/AccountScreen';
+import { SubscribeScreen } from './src/screens/SubscribeScreen';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
 const Stack = createNativeStackNavigator();
@@ -48,6 +50,16 @@ function AppNavigator() {
             <Stack.Screen
               name="Settings"
               component={SettingsScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Account"
+              component={AccountScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Subscribe"
+              component={SubscribeScreen}
               options={{ headerShown: false }}
             />
           </>

@@ -56,6 +56,7 @@ describe('api', () => {
         expect.objectContaining({
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
           },
           credentials: 'include',
         })
@@ -72,6 +73,7 @@ describe('api', () => {
         expect.objectContaining({
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
             'Authorization': 'Bearer test-token-123',
           },
           credentials: 'include',
