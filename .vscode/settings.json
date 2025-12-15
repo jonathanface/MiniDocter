@@ -20,5 +20,6 @@
   "files.associations": {
     "*.tsx": "typescriptreact",
     "*.ts": "typescript"
-  }
+  },
+  "makefile.configureOnOpen": false
 }

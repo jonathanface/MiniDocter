@@ -7,8 +7,11 @@ import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { StoryListScreen } from './src/screens/StoryListScreen';
+import { CreateStoryScreen } from './src/screens/CreateStoryScreen';
 import { StoryEditorScreen } from './src/screens/StoryEditorScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { AccountScreen } from './src/screens/AccountScreen';
+import { SubscribeScreen } from './src/screens/SubscribeScreen';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
 const Stack = createNativeStackNavigator();
@@ -35,6 +38,11 @@ function AppNavigator() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
+              name="CreateStory"
+              component={CreateStoryScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
               name="Editor"
               component={StoryEditorScreen}
               options={{ headerShown: false }}
@@ -42,6 +50,16 @@ function AppNavigator() {
             <Stack.Screen
               name="Settings"
               component={SettingsScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Account"
+              component={AccountScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Subscribe"
+              component={SubscribeScreen}
               options={{ headerShown: false }}
             />
           </>

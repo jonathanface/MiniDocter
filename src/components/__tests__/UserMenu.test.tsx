@@ -108,13 +108,13 @@ describe('UserMenu', () => {
     expect(mockToggleTheme).toHaveBeenCalledTimes(1);
   });
 
-  it('should navigate to Settings when Settings is pressed', () => {
+  it('should navigate to Account when Account is pressed', () => {
     const { getAllByText, getByText } = render(<UserMenu />);
 
     fireEvent.press(getAllByText('T')[0]);
-    fireEvent.press(getByText('⚙️  Settings'));
+    fireEvent.press(getByText('⚙️  Account'));
 
-    expect(mockNavigate).toHaveBeenCalledWith('Settings');
+    expect(mockNavigate).toHaveBeenCalledWith('Account');
   });
 
   it('should call signOut when Sign Out is pressed', async () => {

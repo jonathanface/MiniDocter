@@ -59,9 +59,7 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
 
     // Load content from backend format
     function loadContentFromBackend(data: BackendData) {
-      console.log('[Lexical App] loadContentFromBackend called with:', JSON.stringify(data).substring(0, 200));
       if (!data || !data.items) {
-        console.log('[Lexical App] No data or items, returning');
         return;
       }
 
@@ -174,10 +172,10 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
 
             // Get paragraph format and indent
             const paragraphNode = node as ElementNode & {
-              getFormat?: () => string;
+              getFormatType?: () => string;
               getIndent?: () => number;
             };
-            const paragraphFormat = paragraphNode.getFormat?.() || 'left';
+            const paragraphFormat = paragraphNode.getFormatType?.() || 'left';
             const paragraphIndent = paragraphNode.getIndent?.() || 0;
 
             const unwrappedKeyId = typeof originalItem?.key_id === 'object' && originalItem.key_id !== null && 'Value' in originalItem.key_id
@@ -233,17 +231,14 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
     // If paragraphKeys is provided, only highlight those specific paragraphs
     function highlightAssociations(paragraphKeys?: Set<string>) {
       if (associationsRef.current.length === 0) {
-        console.log('[Lexical App] No associations to highlight');
         return;
       }
 
       if (isHighlightingRef.current) {
-        console.log('[Lexical App] Already highlighting, skipping');
         return;
       }
 
       isHighlightingRef.current = true;
-      console.log('[Lexical App] Highlighting', associationsRef.current.length, 'associations');
 
       // Clear association map before rebuilding
       associationMapRef.current.clear();
@@ -269,13 +264,9 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
             let charCount = 0;
             let targetOffset = 0;
 
-            console.log('[Lexical App] Saving cursor position, anchor.offset:', anchor.offset, 'node key:', node.getKey());
-
             for (const child of children) {
-              console.log('[Lexical App]   Child node:', child.getKey(), 'text:', child.getTextContent().substring(0, 20), 'length:', child.getTextContent().length, 'charCount:', charCount);
               if (child.getKey() === node.getKey()) {
                 targetOffset = charCount + anchor.offset;
-                console.log('[Lexical App]   Found target node! targetOffset =', charCount, '+', anchor.offset, '=', targetOffset);
                 break;
               }
               charCount += child.getTextContent().length;
@@ -287,7 +278,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
               focusOffset: targetOffset,
               isCollapsed: true,
             };
-            console.log('[Lexical App] Saved cursor at offset', targetOffset, 'in paragraph', currentNode.getKey());
           }
         }
       });
@@ -342,8 +332,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
               return children.find((p: LexicalNode) => p.getKey() === key);
             }).filter((p): p is ElementNode => p !== undefined && p.getType() === 'paragraph')
           : root.getChildren().filter((p: LexicalNode): p is ElementNode => p.getType() === 'paragraph');
-
-        console.log('[Lexical App] Checking', paragraphsToProcess.length, 'paragraph(s)');
 
         paragraphsToProcess.forEach((paragraph: ElementNode) => {
           const textNodes = paragraph.getChildren();
@@ -454,16 +442,12 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
             let targetNode = null;
             let targetOffset = 0;
 
-            console.log('[Lexical App] Restoring cursor, looking for offset', savedSelectionInfo.anchorOffset);
-
             // Find the text node that contains the saved offset
             for (const node of textNodes) {
               const nodeLength = node.getTextContent().length;
-              console.log('[Lexical App]   Node:', node.getKey(), 'text:', node.getTextContent().substring(0, 20), 'length:', nodeLength, 'charCount:', charCount, 'range:', charCount, '-', charCount + nodeLength);
               if (charCount + nodeLength >= savedSelectionInfo.anchorOffset) {
                 targetNode = node;
                 targetOffset = savedSelectionInfo.anchorOffset - charCount;
-                console.log('[Lexical App]   Found! targetOffset =', savedSelectionInfo.anchorOffset, '-', charCount, '=', targetOffset);
                 break;
               }
               charCount += nodeLength;
@@ -475,9 +459,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
               newSelection.anchor.set(targetNode.getKey(), targetOffset, 'text');
               newSelection.focus.set(targetNode.getKey(), targetOffset, 'text');
               $setSelection(newSelection);
-              console.log('[Lexical App] Restored cursor to offset', targetOffset, 'in node', targetNode.getKey());
-            } else {
-              console.log('[Lexical App] Failed to find target node for cursor restoration');
             }
           }
         }
@@ -491,10 +472,8 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
 
     // Handle messages from React Native
     function handleMessage(event: MessageEvent) {
-      console.log('[Lexical App] Message event fired, event.data:', typeof event.data);
       try {
         const data = JSON.parse(event.data);
-        console.log('[Lexical App] Received message:', data.type);
 
         switch (data.type) {
           case 'setContent':
@@ -513,19 +492,16 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
 
           case 'setAssociations':
             associationsRef.current = data.payload || [];
-            console.log('[Lexical App] Associations set:', associationsRef.current.length);
             // Highlight associations after setting them
             highlightAssociations();
             break;
 
           case 'setAutotab':
             autotabRef.current = data.payload || false;
-            console.log('[Lexical App] Autotab set:', autotabRef.current);
             break;
 
           case 'setSpellcheck': {
             spellCheckRef.current = data.payload ?? true;
-            console.log('[Lexical App] Spellcheck set:', data.payload);
             // Apply spellcheck attribute to contentEditable element
             const contentEditableElement = document.querySelector('.editor-input');
             if (contentEditableElement) {
@@ -539,6 +515,48 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
             console.log('[Lexical App] ReadOnly set:', readOnly);
             setIsReadOnly(readOnly);
             editor.setEditable(!readOnly);
+          case 'applyFormat': {
+            const format = data.payload;
+            editor.update(() => {
+              const selection = $getSelection();
+              if ($isRangeSelection(selection)) {
+                switch (format) {
+                  case 'bold':
+                    selection.formatText('bold');
+                    break;
+                  case 'italic':
+                    selection.formatText('italic');
+                    break;
+                  case 'underline':
+                    selection.formatText('underline');
+                    break;
+                  case 'strikethrough':
+                    selection.formatText('strikethrough');
+                    break;
+                }
+              }
+            });
+            break;
+          }
+
+          case 'applyAlignment': {
+            const alignment = data.payload;
+            editor.update(() => {
+              const selection = $getSelection();
+              if ($isRangeSelection(selection)) {
+                const anchorNode = selection.anchor.getNode();
+                let element = anchorNode.getParent();
+
+                // Find the paragraph element
+                while (element && element.getType() !== 'paragraph') {
+                  element = element.getParent();
+                }
+
+                if (element && element.getType() === 'paragraph') {
+                  (element as ElementNode).setFormat(alignment);
+                }
+              }
+            });
             break;
           }
         }
@@ -552,7 +570,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
     // React Native WebView uses document.addEventListener on Android
     window.addEventListener('message', handleMessage);
     document.addEventListener('message', handleMessage as unknown as EventListener);
-    console.log('[Lexical App] Message listeners registered on window and document');
 
     // Handle clicks on associations
     function handleAssociationClick(event: Event) {
@@ -595,7 +612,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
               contentEditableElement.blur();
             }
 
-            console.log('[Lexical App] Association clicked:', association);
             sendMessage('associationClicked', association);
             return;
           }
@@ -610,7 +626,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
     const contentEditableElement = document.querySelector('.editor-input');
     if (contentEditableElement) {
       contentEditableElement.addEventListener('click', handleAssociationClick, true); // true = capture phase
-      console.log('[Lexical App] Click handler registered on editor');
     }
 
     // Initialize with empty content
@@ -666,34 +681,66 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
       clearTimeout(highlightTimeout);
       highlightTimeout = setTimeout(() => {
         if (modifiedParagraphs.size > 0) {
-          console.log('[Lexical App] Re-highlighting', modifiedParagraphs.size, 'modified paragraphs');
           highlightAssociations(modifiedParagraphs);
         }
       }, 1000); // Debounce 1000ms to avoid rapid re-highlighting
     });
 
-    // Test message listener
-    console.log('[Lexical App] Setting up message listener, ReactNativeWebView exists:', !!window.ReactNativeWebView);
+    // Listen for selection changes to update format toolbar state
+    editor.registerUpdateListener(({ editorState }) => {
+      editorState.read(() => {
+        const selection = $getSelection();
+
+        if ($isRangeSelection(selection)) {
+          // Get text formatting state
+          const isBold = selection.hasFormat('bold');
+          const isItalic = selection.hasFormat('italic');
+          const isUnderline = selection.hasFormat('underline');
+          const isStrikethrough = selection.hasFormat('strikethrough');
+
+          // Get paragraph alignment
+          let alignment: 'left' | 'center' | 'right' | 'justify' = 'left';
+          const anchorNode = selection.anchor.getNode();
+          let element = anchorNode.getParent();
+
+          // Find the paragraph element
+          while (element && element.getType() !== 'paragraph') {
+            element = element.getParent();
+          }
+
+          if (element && element.getType() === 'paragraph') {
+            const format = (element as ElementNode).getFormatType();
+            if (format === 'center' || format === 'right' || format === 'justify') {
+              alignment = format;
+            }
+          }
+
+          // Send format state to React Native
+          sendMessage('formatChange', {
+            isBold,
+            isItalic,
+            isUnderline,
+            isStrikethrough,
+            alignment
+          });
+        }
+      });
+    });
 
     // Register Enter key command for autotab
     const removeEnterCommand = editor.registerCommand(
       KEY_ENTER_COMMAND,
       () => {
-        console.log('[Lexical App] Enter key pressed, autotab:', autotabRef.current);
         if (!autotabRef.current) return false; // Let default behavior handle it
 
         // Let Lexical create the new paragraph first, then add tab
         setTimeout(() => {
           editor.update(() => {
             const newSelection = $getSelection();
-            console.log('[Lexical App] After Enter, selection exists:', !!newSelection);
 
             if ($isRangeSelection(newSelection) && newSelection.isCollapsed()) {
               const anchor = newSelection.anchor;
               const node = anchor.getNode();
-
-              console.log('[Lexical App] Node type:', node.getType(), 'parent type:', node.getParent()?.getType());
-              console.log('[Lexical App] Node text:', JSON.stringify(node.getTextContent()), 'offset:', anchor.offset);
 
               // The node might be the paragraph itself
               let paragraph: ElementNode | null = null;
@@ -708,11 +755,9 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
 
               if (paragraph) {
                 const children = paragraph.getChildren();
-                console.log('[Lexical App] Paragraph has', children.length, 'children');
 
                 // If paragraph is empty or only has one empty text node
                 if (children.length === 0 || (children.length === 1 && children[0].getTextContent() === '')) {
-                  console.log('[Lexical App] Inserting tab');
                   const tabNode = $createTextNode('\t');
 
                   // Clear the paragraph and add tab
@@ -724,7 +769,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
                   newSel.anchor.set(tabNode.getKey(), 1, 'text');
                   newSel.focus.set(tabNode.getKey(), 1, 'text');
                   $setSelection(newSel);
-                  console.log('[Lexical App] Tab inserted, cursor positioned');
                 }
               }
             }

@@ -9,6 +9,7 @@ interface LexicalEditorProps {
   onSave?: (content: any) => void;
   onAssociationClick?: (association: Association) => void;
   onReady?: () => void;
+  onFormatChange?: (formatState: any) => void;
   backgroundColor?: string;
   textColor?: string;
   associations?: Association[];
@@ -21,23 +22,22 @@ export interface LexicalEditorRef {
   setContent: (content: any) => void;
   getContent: () => Promise<any>;
   focus: () => void;
+  applyFormat: (format: 'bold' | 'italic' | 'underline' | 'strikethrough') => void;
+  applyAlignment: (alignment: 'left' | 'center' | 'right' | 'justify') => void;
 }
 
 export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
-  ({ onContentChange, onSave, onAssociationClick, onReady, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
+  ({ onContentChange, onSave, onAssociationClick, onFormatChange, onReady, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const editorReadyRef = useRef(false);
     const pendingContentRef = useRef<any>(null);
 
     useImperativeHandle(ref, () => ({
       setContent: (content: any) => {
-        console.log('[Lexical] setContent called, editorReady:', editorReadyRef.current);
         if (editorReadyRef.current && webViewRef.current) {
           const message = JSON.stringify({ type: 'setContent', payload: content });
-          console.log('[Lexical] Sending setContent message immediately');
           webViewRef.current.postMessage(message);
         } else {
-          console.log('[Lexical] Editor not ready, queuing content');
           pendingContentRef.current = content;
         }
       },
@@ -55,12 +55,21 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
           JSON.stringify({ type: 'focus' })
         );
       },
+      applyFormat: (format: 'bold' | 'italic' | 'underline' | 'strikethrough') => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({ type: 'applyFormat', payload: format })
+        );
+      },
+      applyAlignment: (alignment: 'left' | 'center' | 'right' | 'justify') => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({ type: 'applyAlignment', payload: alignment })
+        );
+      },
     }));
 
     // Send associations to WebView when they change
     React.useEffect(() => {
       if (editorReadyRef.current && webViewRef.current && associations.length > 0) {
-        console.log('[Lexical] Sending associations to WebView:', associations.length);
         webViewRef.current.postMessage(
           JSON.stringify({ type: 'setAssociations', payload: associations })
         );
@@ -70,7 +79,6 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
     // Send autotab setting to WebView when it changes
     React.useEffect(() => {
       if (editorReadyRef.current && webViewRef.current) {
-        console.log('[Lexical] Sending autotab setting to WebView:', autotab);
         webViewRef.current.postMessage(
           JSON.stringify({ type: 'setAutotab', payload: autotab })
         );
@@ -80,7 +88,6 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
     // Send spellcheck setting to WebView when it changes
     React.useEffect(() => {
       if (editorReadyRef.current && webViewRef.current) {
-        console.log('[Lexical] Sending spellcheck setting to WebView:', spellcheck);
         webViewRef.current.postMessage(
           JSON.stringify({ type: 'setSpellcheck', payload: spellcheck })
         );
@@ -100,11 +107,10 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
     const handleMessage = (event: any) => {
       try {
         const data = JSON.parse(event.nativeEvent.data);
-        console.log('[Lexical] Message received:', data.type);
 
         switch (data.type) {
           case 'log':
-            console.log('[WebView]', data.payload.message);
+            // WebView log messages - ignore in production
             break;
           case 'contentChanged':
             onContentChange?.(data.payload);
@@ -119,32 +125,27 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             }
             break;
           case 'ready':
-            console.log('[Lexical] Editor ready');
             editorReadyRef.current = true;
             // Send pending content if any
             if (pendingContentRef.current && webViewRef.current) {
-              console.log('[Lexical] Sending pending content');
               const message = JSON.stringify({ type: 'setContent', payload: pendingContentRef.current });
               webViewRef.current.postMessage(message);
               pendingContentRef.current = null;
             }
             // Send associations when editor becomes ready
             if (associations.length > 0 && webViewRef.current) {
-              console.log('[Lexical] Sending associations on ready:', associations.length);
               webViewRef.current.postMessage(
                 JSON.stringify({ type: 'setAssociations', payload: associations })
               );
             }
             // Send autotab setting when editor becomes ready
             if (webViewRef.current) {
-              console.log('[Lexical] Sending autotab setting:', autotab);
               webViewRef.current.postMessage(
                 JSON.stringify({ type: 'setAutotab', payload: autotab })
               );
             }
             // Send spellcheck setting when editor becomes ready
             if (webViewRef.current) {
-              console.log('[Lexical] Sending spellcheck setting:', spellcheck);
               webViewRef.current.postMessage(
                 JSON.stringify({ type: 'setSpellcheck', payload: spellcheck })
               );
@@ -160,17 +161,20 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             onReady?.();
             break;
           case 'associationClicked':
-            console.log('[Lexical] Association clicked:', data.payload);
             onAssociationClick?.(data.payload);
+            break;
+          case 'formatChange':
+            onFormatChange?.(data.payload);
             break;
           case 'error':
             console.error('[Lexical] Error:', data.payload);
             break;
           default:
-            console.log('[Lexical] Unknown message type:', data.type);
+            // Unknown message type - ignore
+            break;
         }
       } catch (error) {
-        console.error('[Lexical] Failed to parse message:', error, event.nativeEvent.data);
+        console.error('[Lexical] Failed to parse message:', error);
       }
     };
 

@@ -28,7 +28,7 @@ export const UserMenu = () => {
 
   const handleSettings = () => {
     setIsOpen(false);
-    navigation.navigate('Settings' as never);
+    navigation.navigate('Account' as never);
   };
 
   const handleThemeToggle = () => {
@@ -148,7 +148,7 @@ export const UserMenu = () => {
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.menuItem} onPress={handleSettings}>
-              <Text style={styles.menuItemText}>⚙️  Settings</Text>
+              <Text style={styles.menuItemText}>⚙️  Account</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.menuItem} onPress={handleSignOut}>

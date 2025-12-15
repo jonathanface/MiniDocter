@@ -1,12 +1,11 @@
 {
   "expo": {
-    "name": "MiniDocter",
+    "name": "Docter.io",
     "slug": "MiniDocter",
     "scheme": "minidocter",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -14,9 +13,11 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.MiniDocter"
+      "bundleIdentifier": "com.anonymous.MiniDocter",
+      "userInterfaceStyle": "light"
     },
     "android": {
+      "userInterfaceStyle": "light",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -45,7 +46,23 @@
     },
     "plugins": [
       "expo-web-browser",
-      "expo-secure-store"
-    ]
+      "expo-secure-store",
+      "expo-font"
+    ],
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/e1534412-c6b1-4170-8d81-177835cbb9df"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e1534412-c6b1-4170-8d81-177835cbb9df"
+      }
+    },
+    "owner": "jface78",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }
