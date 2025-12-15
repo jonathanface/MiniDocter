@@ -8,11 +8,13 @@ interface LexicalEditorProps {
   onContentChange?: (content: any) => void;
   onSave?: (content: any) => void;
   onAssociationClick?: (association: Association) => void;
+  onReady?: () => void;
   backgroundColor?: string;
   textColor?: string;
   associations?: Association[];
   autotab?: boolean;
   spellcheck?: boolean;
+  readOnly?: boolean;
 }
 
 export interface LexicalEditorRef {
@@ -22,7 +24,7 @@ export interface LexicalEditorRef {
 }
 
 export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
-  ({ onContentChange, onSave, onAssociationClick, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true }, ref) => {
+  ({ onContentChange, onSave, onAssociationClick, onReady, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const editorReadyRef = useRef(false);
     const pendingContentRef = useRef<any>(null);
@@ -85,6 +87,16 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
       }
     }, [spellcheck]);
 
+    // Send readOnly setting to WebView when it changes
+    React.useEffect(() => {
+      if (editorReadyRef.current && webViewRef.current) {
+        console.log('[Lexical] Sending readOnly setting to WebView:', readOnly);
+        webViewRef.current.postMessage(
+          JSON.stringify({ type: 'setReadOnly', payload: readOnly })
+        );
+      }
+    }, [readOnly]);
+
     const handleMessage = (event: any) => {
       try {
         const data = JSON.parse(event.nativeEvent.data);
@@ -137,6 +149,15 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
                 JSON.stringify({ type: 'setSpellcheck', payload: spellcheck })
               );
             }
+            // Send readOnly setting when editor becomes ready
+            if (webViewRef.current) {
+              console.log('[Lexical] Sending readOnly setting:', readOnly);
+              webViewRef.current.postMessage(
+                JSON.stringify({ type: 'setReadOnly', payload: readOnly })
+              );
+            }
+            // Notify parent component that editor is ready
+            onReady?.();
             break;
           case 'associationClicked':
             console.log('[Lexical] Association clicked:', data.payload);
