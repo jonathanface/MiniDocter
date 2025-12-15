@@ -25,6 +25,20 @@ jest.mock('../../contexts/ThemeContext', () => ({
   })),
 }));
 
+jest.mock('../../hooks/useAssociations', () => ({
+  useAssociations: jest.fn(() => ({
+    associations: [],
+  })),
+}));
+
+jest.mock('../LexicalEditor', () => ({
+  LexicalEditor: jest.fn(() => {
+    const React = require('react');
+    const { View } = require('react-native');
+    return React.createElement(View, { testID: 'lexical-editor-mock' });
+  }),
+}));
+
 const mockApiGet = apiGet as jest.MockedFunction<typeof apiGet>;
 
 describe('AssociationPanel', () => {
@@ -112,9 +126,8 @@ describe('AssociationPanel', () => {
       expect(getByText('John Doe')).toBeTruthy();
     });
 
-    expect(getByText('Main protagonist')).toBeTruthy();
+    // Summary and Background are now in LexicalEditor, so just check other fields
     expect(getByText('Johnny, JD')).toBeTruthy();
-    expect(getByText('A brave hero on a quest')).toBeTruthy();
     expect(getByText('No')).toBeTruthy(); // case_sensitive: false
   });
 
@@ -339,5 +352,160 @@ describe('AssociationPanel', () => {
     rerender(<AssociationPanel {...defaultProps} visible={true} associationId={null} />);
 
     expect(mockApiGet).not.toHaveBeenCalled();
+  });
+
+  describe('LexicalEditor Integration', () => {
+    it('should render LexicalEditor components for summary and background', async () => {
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => mockAssociation,
+      } as Response);
+
+      const { getAllByTestId } = render(<AssociationPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        const editors = getAllByTestId('lexical-editor-mock');
+        // Should have 2 editors: summary and background
+        expect(editors.length).toBe(2);
+      });
+    });
+
+    it('should pass associations to LexicalEditor', async () => {
+      const mockAssociations = [
+        {
+          association_id: 'assoc-1',
+          association_name: 'Test',
+          association_type: 'character',
+          case_sensitive: false,
+          aliases: '',
+          short_description: '',
+          portrait: '',
+        },
+      ];
+
+      const { useAssociations } = require('../../hooks/useAssociations');
+      useAssociations.mockReturnValue({ associations: mockAssociations });
+
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => mockAssociation,
+      } as Response);
+
+      const { LexicalEditor } = require('../LexicalEditor');
+
+      render(<AssociationPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        const calls = LexicalEditor.mock.calls;
+        const hasAssociations = calls.some((call: any) =>
+          call[0].associations &&
+          call[0].associations.length > 0 &&
+          call[0].associations[0].association_id === 'assoc-1'
+        );
+        expect(hasAssociations).toBe(true);
+      });
+    });
+
+    it('should pass readOnly=true to LexicalEditors', async () => {
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => mockAssociation,
+      } as Response);
+
+      const { LexicalEditor } = require('../LexicalEditor');
+
+      render(<AssociationPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        const calls = LexicalEditor.mock.calls;
+        const allReadOnly = calls.every((call: any) => call[0].readOnly === true);
+        expect(allReadOnly).toBe(true);
+        expect(calls.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('should handle association click by loading new association', async () => {
+      const association1 = { ...mockAssociation, association_id: 'assoc-1' };
+      const association2 = {
+        ...mockAssociation,
+        association_id: 'assoc-2',
+        association_name: 'Jane Smith',
+      };
+
+      mockApiGet
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => association1,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => association2,
+        } as Response);
+
+      const { LexicalEditor } = require('../LexicalEditor');
+      let onAssociationClick: any;
+
+      LexicalEditor.mockImplementation((props: any) => {
+        const React = require('react');
+        const { View } = require('react-native');
+        onAssociationClick = props.onAssociationClick;
+        return React.createElement(View, { testID: 'lexical-editor-mock' });
+      });
+
+      const { getByText } = render(<AssociationPanel {...defaultProps} associationId="assoc-1" />);
+
+      await waitFor(() => {
+        expect(getByText('John Doe')).toBeTruthy();
+      });
+
+      // Simulate clicking an association
+      onAssociationClick({ association_id: 'assoc-2', association_name: 'Jane Smith' });
+
+      await waitFor(() => {
+        expect(getByText('Jane Smith')).toBeTruthy();
+      });
+
+      expect(mockApiGet).toHaveBeenCalledTimes(2);
+      expect(mockApiGet).toHaveBeenCalledWith('/stories/story-456/associations/assoc-1');
+      expect(mockApiGet).toHaveBeenCalledWith('/stories/story-456/associations/assoc-2');
+    });
+
+    it('should pass onReady callback to LexicalEditors', async () => {
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => mockAssociation,
+      } as Response);
+
+      const { LexicalEditor } = require('../LexicalEditor');
+
+      render(<AssociationPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        const calls = LexicalEditor.mock.calls;
+        const allHaveOnReady = calls.every((call: any) => typeof call[0].onReady === 'function');
+        expect(allHaveOnReady).toBe(true);
+        expect(calls.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('should only render background editor when extended_description exists', async () => {
+      const noExtendedDesc = {
+        ...mockAssociation,
+        details: undefined,
+      };
+
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => noExtendedDesc,
+      } as Response);
+
+      const { getAllByTestId } = render(<AssociationPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        const editors = getAllByTestId('lexical-editor-mock');
+        // Should only have 1 editor: summary
+        expect(editors.length).toBe(1);
+      });
+    });
   });
 });

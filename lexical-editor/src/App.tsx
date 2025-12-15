@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
@@ -23,7 +23,11 @@ const ASSOCIATION_COLORS = {
   item: '#fbbf24',
 };
 
-function EditorPlugin() {
+interface EditorPluginProps {
+  setIsReadOnly: (readOnly: boolean) => void;
+}
+
+function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
   const [editor] = useLexicalComposerContext();
   const isLoadingRef = useRef(false);
   const isHighlightingRef = useRef(false); // Prevent infinite loop during highlighting
@@ -550,6 +554,14 @@ function EditorPlugin() {
             });
             break;
           }
+
+          case 'setReadOnly': {
+            const readOnly = data.payload ?? false;
+            console.log('[Lexical App] ReadOnly set:', readOnly);
+            setIsReadOnly(readOnly);
+            editor.setEditable(!readOnly);
+            break;
+          }
         }
       } catch (error) {
         console.error('Failed to handle message:', error);
@@ -797,6 +809,8 @@ function EditorPlugin() {
 }
 
 function App() {
+  const [isReadOnly, setIsReadOnly] = React.useState(false);
+
   const initialConfig = {
     namespace: 'MiniDocterEditor',
     theme: {
@@ -818,10 +832,10 @@ function App() {
       <div className="editor-container">
         <RichTextPlugin
           contentEditable={<ContentEditable className="editor-input" />}
-          placeholder={<div className="editor-placeholder">Start typing...</div>}
+          placeholder={isReadOnly ? null : <div className="editor-placeholder">Start typing...</div>}
           ErrorBoundary={LexicalErrorBoundary}
         />
-        <EditorPlugin />
+        <EditorPlugin setIsReadOnly={setIsReadOnly} />
       </div>
     </LexicalComposer>
   );
