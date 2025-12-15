@@ -430,6 +430,156 @@ describe('LexicalEditor', () => {
     });
   });
 
+  describe('ReadOnly Setting', () => {
+    it('should send readOnly setting when editor becomes ready', async () => {
+      const consoleLog = jest.spyOn(console, 'log');
+      const { UNSAFE_getByType } = render(<LexicalEditor readOnly={true} />);
+
+      const webView = UNSAFE_getByType(WebView as any);
+
+      await waitFor(() => {
+        webView.props.onMessage({
+          nativeEvent: {
+            data: JSON.stringify({ type: 'ready' }),
+          },
+        });
+      });
+
+      expect(consoleLog).toHaveBeenCalledWith(
+        '[Lexical] Sending readOnly setting:',
+        true
+      );
+    });
+
+    it('should send readOnly setting when it changes', async () => {
+      const consoleLog = jest.spyOn(console, 'log');
+      const { UNSAFE_getByType, rerender } = render(
+        <LexicalEditor readOnly={false} />
+      );
+
+      const webView = UNSAFE_getByType(WebView as any);
+
+      // Make editor ready
+      await waitFor(() => {
+        webView.props.onMessage({
+          nativeEvent: {
+            data: JSON.stringify({ type: 'ready' }),
+          },
+        });
+      });
+
+      // Update readOnly
+      rerender(<LexicalEditor readOnly={true} />);
+
+      await waitFor(() => {
+        expect(consoleLog).toHaveBeenCalledWith(
+          '[Lexical] Sending readOnly setting to WebView:',
+          true
+        );
+      });
+    });
+
+    it('should use default readOnly value of false', async () => {
+      const consoleLog = jest.spyOn(console, 'log');
+      const { UNSAFE_getByType } = render(<LexicalEditor />);
+
+      const webView = UNSAFE_getByType(WebView as any);
+
+      await waitFor(() => {
+        webView.props.onMessage({
+          nativeEvent: {
+            data: JSON.stringify({ type: 'ready' }),
+          },
+        });
+      });
+
+      expect(consoleLog).toHaveBeenCalledWith(
+        '[Lexical] Sending readOnly setting:',
+        false
+      );
+    });
+  });
+
+  describe('onReady Callback', () => {
+    it('should call onReady when editor becomes ready', async () => {
+      const onReady = jest.fn();
+      const { UNSAFE_getByType } = render(<LexicalEditor onReady={onReady} />);
+
+      const webView = UNSAFE_getByType(WebView as any);
+
+      await waitFor(() => {
+        webView.props.onMessage({
+          nativeEvent: {
+            data: JSON.stringify({ type: 'ready' }),
+          },
+        });
+      });
+
+      expect(onReady).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not call onReady if not provided', async () => {
+      const { UNSAFE_getByType } = render(<LexicalEditor />);
+
+      const webView = UNSAFE_getByType(WebView as any);
+
+      // Should not throw error when onReady is not provided
+      expect(() => {
+        webView.props.onMessage({
+          nativeEvent: {
+            data: JSON.stringify({ type: 'ready' }),
+          },
+        });
+      }).not.toThrow();
+    });
+  });
+
+  describe('Association Click', () => {
+    it('should call onAssociationClick when association is clicked', async () => {
+      const onAssociationClick = jest.fn();
+      const { UNSAFE_getByType } = render(
+        <LexicalEditor onAssociationClick={onAssociationClick} />
+      );
+
+      const webView = UNSAFE_getByType(WebView as any);
+      const clickedAssociation = {
+        association_id: 'assoc-1',
+        association_name: 'Test',
+        association_type: 'character',
+      };
+
+      await waitFor(() => {
+        webView.props.onMessage({
+          nativeEvent: {
+            data: JSON.stringify({
+              type: 'associationClicked',
+              payload: clickedAssociation,
+            }),
+          },
+        });
+      });
+
+      expect(onAssociationClick).toHaveBeenCalledWith(clickedAssociation);
+    });
+
+    it('should not throw if onAssociationClick is not provided', async () => {
+      const { UNSAFE_getByType } = render(<LexicalEditor />);
+
+      const webView = UNSAFE_getByType(WebView as any);
+
+      expect(() => {
+        webView.props.onMessage({
+          nativeEvent: {
+            data: JSON.stringify({
+              type: 'associationClicked',
+              payload: { association_id: 'test' },
+            }),
+          },
+        });
+      }).not.toThrow();
+    });
+  });
+
   describe('Spellcheck Setting', () => {
     it('should send spellcheck setting when editor becomes ready', async () => {
       const { UNSAFE_getByType } = render(<LexicalEditor spellcheck={false} />);

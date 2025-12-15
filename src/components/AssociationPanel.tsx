@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Association } from '../types';
 import { apiGet } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
+import { LexicalEditor, LexicalEditorRef } from './LexicalEditor';
+import { useAssociations, Association as AssociationFromHook } from '../hooks/useAssociations';
 
 interface AssociationPanelProps {
   visible: boolean;
@@ -30,25 +32,133 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
   const { colors } = useTheme();
   const [association, setAssociation] = useState<Association | null>(null);
   const [loading, setLoading] = useState(false);
+  const [summaryEditorReady, setSummaryEditorReady] = useState(false);
+  const [backgroundEditorReady, setBackgroundEditorReady] = useState(false);
+  const [currentAssociationId, setCurrentAssociationId] = useState<string | null>(null);
+  const summaryEditorRef = useRef<LexicalEditorRef>(null);
+  const backgroundEditorRef = useRef<LexicalEditorRef>(null);
 
+  // Fetch associations for highlighting text
+  const { associations } = useAssociations(storyId);
+
+  // Set initial association ID when panel opens
   useEffect(() => {
     if (visible && associationId) {
-      loadAssociation();
+      setCurrentAssociationId(associationId);
+    } else if (!visible) {
+      // Reset states when panel closes
+      setSummaryEditorReady(false);
+      setBackgroundEditorReady(false);
+      setCurrentAssociationId(null);
     }
   }, [visible, associationId]);
 
-  const loadAssociation = async () => {
-    if (!associationId || !storyId) return;
+  // Load association data when currentAssociationId changes
+  useEffect(() => {
+    if (currentAssociationId) {
+      loadAssociation(currentAssociationId);
+    }
+  }, [currentAssociationId]);
+
+  // Update summary editor content when both association and editor are ready
+  useEffect(() => {
+    if (association?.short_description && summaryEditorReady && summaryEditorRef.current) {
+      const shortDesc = association.short_description;
+      console.log('[AssociationPanel] Setting summary editor content, length:', shortDesc.length);
+
+      // Convert plain text to backend format expected by Lexical editor
+      summaryEditorRef.current.setContent({
+        items: [{
+          key_id: '0',
+          chunk: {
+            children: [{
+              detail: 0,
+              format: 0,
+              mode: "normal",
+              style: "",
+              text: shortDesc,
+              type: "text",
+              version: 1
+            }],
+            direction: "ltr",
+            format: "",
+            indent: 0,
+            type: "paragraph",
+            version: 1,
+            textFormat: 0
+          },
+          place: '0'
+        }]
+      });
+    }
+  }, [association, summaryEditorReady]);
+
+  // Update background editor content when both association and editor are ready
+  useEffect(() => {
+    if (association?.details?.extended_description && backgroundEditorReady && backgroundEditorRef.current) {
+      const extendedDesc = association.details.extended_description;
+      console.log('[AssociationPanel] Setting background editor content, length:', extendedDesc.length);
+
+      // Convert plain text to backend format expected by Lexical editor
+      backgroundEditorRef.current.setContent({
+        items: [{
+          key_id: '0',
+          chunk: {
+            children: [{
+              detail: 0,
+              format: 0,
+              mode: "normal",
+              style: "",
+              text: extendedDesc,
+              type: "text",
+              version: 1
+            }],
+            direction: "ltr",
+            format: "",
+            indent: 0,
+            type: "paragraph",
+            version: 1,
+            textFormat: 0
+          },
+          place: '0'
+        }]
+      });
+    }
+  }, [association, backgroundEditorReady]);
+
+  const handleSummaryEditorReady = () => {
+    console.log('[AssociationPanel] Summary editor is ready');
+    setSummaryEditorReady(true);
+  };
+
+  const handleBackgroundEditorReady = () => {
+    console.log('[AssociationPanel] Background editor is ready');
+    setBackgroundEditorReady(true);
+  };
+
+  const handleAssociationClick = (clickedAssociation: AssociationFromHook) => {
+    console.log('[AssociationPanel] Association clicked, navigating to:', clickedAssociation.association_name);
+    // Update the current association ID to load the clicked association
+    setCurrentAssociationId(clickedAssociation.association_id);
+    // Reset editor ready states so they can be set again when new content loads
+    setSummaryEditorReady(false);
+    setBackgroundEditorReady(false);
+  };
+
+  const loadAssociation = async (idToLoad: string) => {
+    if (!idToLoad || !storyId) return;
 
     try {
       setLoading(true);
-      const response = await apiGet(`/stories/${storyId}/associations/${associationId}`);
+      const response = await apiGet(`/stories/${storyId}/associations/${idToLoad}`);
 
       if (!response.ok) {
         throw new Error(`Failed to load association: ${response.status}`);
       }
 
       const data: Association = await response.json();
+      console.log('[AssociationPanel] Loaded association:', data.association_name);
+      console.log('[AssociationPanel] Short description:', data.short_description);
       setAssociation(data);
     } catch (error) {
       console.error('Failed to load association:', error);
@@ -173,6 +283,25 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       color: colors.textPrimary,
       lineHeight: 24,
     },
+    summaryText: {
+      fontSize: 16,
+      color: colors.textPrimary,
+      lineHeight: 24,
+    },
+    editorContainer: {
+      height: 150,
+      borderWidth: 1,
+      borderColor: colors.borderLight,
+      borderRadius: 8,
+      overflow: 'hidden',
+    },
+    editorContainerLarge: {
+      height: 250,
+      borderWidth: 1,
+      borderColor: colors.borderLight,
+      borderRadius: 8,
+      overflow: 'hidden',
+    },
     errorText: {
       fontSize: 16,
       color: colors.textTertiary,
@@ -241,20 +370,36 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
                 )}
 
                 {/* Short Description */}
-                {association.short_description && (
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Summary</Text>
-                    <Text style={styles.sectionText}>{association.short_description}</Text>
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Summary</Text>
+                  <View style={styles.editorContainer}>
+                    <LexicalEditor
+                      ref={summaryEditorRef}
+                      backgroundColor={colors.bgPrimary}
+                      textColor={colors.textPrimary}
+                      readOnly={true}
+                      associations={associations}
+                      onReady={handleSummaryEditorReady}
+                      onAssociationClick={handleAssociationClick}
+                    />
                   </View>
-                )}
+                </View>
 
                 {/* Extended Description */}
                 {association.details?.extended_description && (
                   <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Background</Text>
-                    <Text style={styles.sectionText}>
-                      {association.details.extended_description}
-                    </Text>
+                    <View style={styles.editorContainerLarge}>
+                      <LexicalEditor
+                        ref={backgroundEditorRef}
+                        backgroundColor={colors.bgPrimary}
+                        textColor={colors.textPrimary}
+                        readOnly={true}
+                        associations={associations}
+                        onReady={handleBackgroundEditorReady}
+                        onAssociationClick={handleAssociationClick}
+                      />
+                    </View>
                   </View>
                 )}
 
