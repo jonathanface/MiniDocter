@@ -21,6 +21,7 @@ interface LexicalEditorProps {
 export interface LexicalEditorRef {
   setContent: (content: any) => void;
   getContent: () => Promise<any>;
+  getHtml: () => Promise<string>;
   focus: () => void;
   applyFormat: (format: 'bold' | 'italic' | 'underline' | 'strikethrough') => void;
   applyAlignment: (alignment: 'left' | 'center' | 'right' | 'justify') => void;
@@ -47,6 +48,15 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
           (window as any).__contentResolver = resolve;
           webViewRef.current?.postMessage(
             JSON.stringify({ type: 'getContent' })
+          );
+        });
+      },
+      getHtml: (): Promise<string> => {
+        return new Promise((resolve) => {
+          // Store resolver temporarily
+          (window as any).__htmlResolver = resolve;
+          webViewRef.current?.postMessage(
+            JSON.stringify({ type: 'getHtml' })
           );
         });
       },
@@ -97,7 +107,6 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
     // Send readOnly setting to WebView when it changes
     React.useEffect(() => {
       if (editorReadyRef.current && webViewRef.current) {
-        console.log('[Lexical] Sending readOnly setting to WebView:', readOnly);
         webViewRef.current.postMessage(
           JSON.stringify({ type: 'setReadOnly', payload: readOnly })
         );
@@ -110,7 +119,7 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
 
         switch (data.type) {
           case 'log':
-            // WebView log messages - ignore in production
+            // WebView log messages - silently ignore in production
             break;
           case 'contentChanged':
             onContentChange?.(data.payload);
@@ -122,6 +131,12 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             if ((window as any).__contentResolver) {
               (window as any).__contentResolver(data.payload);
               delete (window as any).__contentResolver;
+            }
+            break;
+          case 'htmlResponse':
+            if ((window as any).__htmlResolver) {
+              (window as any).__htmlResolver(data.payload);
+              delete (window as any).__htmlResolver;
             }
             break;
           case 'ready':
@@ -152,7 +167,6 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             }
             // Send readOnly setting when editor becomes ready
             if (webViewRef.current) {
-              console.log('[Lexical] Sending readOnly setting:', readOnly);
               webViewRef.current.postMessage(
                 JSON.stringify({ type: 'setReadOnly', payload: readOnly })
               );
@@ -165,6 +179,9 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             break;
           case 'formatChange':
             onFormatChange?.(data.payload);
+            break;
+          case 'requestFocus':
+            webViewRef.current?.requestFocus?.();
             break;
           case 'error':
             console.error('[Lexical] Error:', data.payload);
@@ -179,10 +196,10 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
     };
 
     // Inject custom styles into the bundled HTML
-    const editorHTML = LEXICAL_HTML.replace(
-      '<body>',
-      `<body style="background-color: ${backgroundColor}; color: ${textColor};">`
-    );
+    // Set background on both body and html to ensure it extends when scrolling
+    const editorHTML = LEXICAL_HTML
+      .replace('<html', `<html style="background-color: ${backgroundColor};"`)
+      .replace('<body>', `<body style="background-color: ${backgroundColor}; color: ${textColor};">`);
 
     return (
       <WebView

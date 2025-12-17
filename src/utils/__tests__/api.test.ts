@@ -8,6 +8,15 @@ import {
   apiDelete,
 } from '../api';
 
+// Mock environment config
+jest.mock('../../config/environment', () => ({
+  API_BASE_URL: 'http://192.168.1.74:8443',
+  USE_EXPO_GO: true,
+  GOOGLE_CLIENT_ID: 'test-google-client-id',
+  AMAZON_CLIENT_ID: 'test-amazon-client-id',
+  ENV: 'local',
+}));
+
 // Mock expo-secure-store
 jest.mock('expo-secure-store');
 
@@ -23,15 +32,9 @@ describe('api', () => {
   });
 
   describe('getApiBaseUrl', () => {
-    it('should return default URL when env var is not set', () => {
+    it('should return mocked URL from environment config', () => {
       const url = getApiBaseUrl();
       expect(url).toBe('http://192.168.1.74:8443');
-    });
-
-    it('should return env var URL when set', () => {
-      process.env.EXPO_PUBLIC_API_BASE_URL = 'https://api.example.com';
-      const url = getApiBaseUrl();
-      expect(url).toBe('https://api.example.com');
     });
   });
 
@@ -169,17 +172,6 @@ describe('api', () => {
             'Authorization': 'Bearer test-token-123',
           }),
         })
-      );
-    });
-
-    it('should use custom base URL from env', async () => {
-      process.env.EXPO_PUBLIC_API_BASE_URL = 'https://custom.api.com';
-
-      await apiGet('/test');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://custom.api.com/test',
-        expect.any(Object)
       );
     });
 
@@ -410,32 +402,6 @@ describe('api', () => {
       mockFetch.mockRejectedValue(new Error('Network request failed'));
 
       await expect(apiGet('/timeout')).rejects.toThrow('Network request failed');
-    });
-
-    it('should work with different base URLs across requests', async () => {
-      mockSecureStore.getItemAsync.mockResolvedValue('test-token-123');
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({}),
-      } as Response);
-
-      // First request with default URL
-      await apiGet('/test1');
-      expect(mockFetch).toHaveBeenLastCalledWith(
-        'http://192.168.1.74:8443/test1',
-        expect.any(Object)
-      );
-
-      // Change env var
-      process.env.EXPO_PUBLIC_API_BASE_URL = 'https://prod.api.com';
-
-      // Second request with new URL
-      await apiGet('/test2');
-      expect(mockFetch).toHaveBeenLastCalledWith(
-        'https://prod.api.com/test2',
-        expect.any(Object)
-      );
     });
   });
 });

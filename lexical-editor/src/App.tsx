@@ -15,20 +15,28 @@ const FORMAT_ITALIC = 2;
 const FORMAT_STRIKETHROUGH = 4;
 const FORMAT_UNDERLINE = 8;
 
-// Association colors (matching React Native theme)
+// Association colors (muted for light mode readability)
 const ASSOCIATION_COLORS = {
-  character: '#4ade80',
-  place: '#60a5fa',
-  event: '#f87171',
-  item: '#fbbf24',
+  character: '#059669', // muted green
+  place: '#3b82f6',     // muted blue
+  event: '#ef4444',     // muted red
+  item: '#f59e0b',      // muted amber/orange
 };
 
 interface EditorPluginProps {
   setIsReadOnly: (readOnly: boolean) => void;
+  editorRef?: React.MutableRefObject<any>;
 }
 
-function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
+function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
   const [editor] = useLexicalComposerContext();
+
+  // Expose editor via ref
+  useEffect(() => {
+    if (editorRef) {
+      editorRef.current = editor;
+    }
+  }, [editor, editorRef]);
   const isLoadingRef = useRef(false);
   const isHighlightingRef = useRef(false); // Prevent infinite loop during highlighting
   const originalItemsRef = useRef<BackendItem[]>([]); // Store original items to preserve key_ids
@@ -38,18 +46,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
   const spellCheckRef = useRef(true); // Store spellcheck setting
 
   useEffect(() => {
-    // Override console.log to send to React Native
-    const originalLog = console.log;
-    console.log = function(...args: unknown[]) {
-      originalLog.apply(console, args);
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'log',
-          payload: { message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') }
-        }));
-      }
-    };
-
     // Helper to send messages to React Native
     function sendMessage(type: string, payload?: unknown) {
       if (window.ReactNativeWebView) {
@@ -60,6 +56,59 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
     // Load content from backend format
     function loadContentFromBackend(data: BackendData) {
       if (!data || !data.items) {
+        return;
+      }
+
+      // Special case: if we have exactly 1 item with empty children, treat it as empty
+      if (data.items.length === 1) {
+        try {
+          const item = data.items[0];
+          let chunk: ParagraphChunk;
+          if (typeof item.chunk === 'string') {
+            chunk = JSON.parse(item.chunk) as ParagraphChunk;
+          } else if (typeof item.chunk === 'object' && item.chunk !== null && 'Value' in item.chunk) {
+            const chunkValue = item.chunk.Value;
+            if (typeof chunkValue === 'string') {
+              chunk = JSON.parse(chunkValue) as ParagraphChunk;
+            } else {
+              chunk = chunkValue as ParagraphChunk;
+            }
+          } else {
+            chunk = item.chunk as ParagraphChunk;
+          }
+
+          // If the only paragraph has no children (empty), replace with fresh paragraph
+          if (!chunk.children || chunk.children.length === 0) {
+            // IMPORTANT: Store the original item to preserve its key_id when saving
+            originalItemsRef.current = [item];
+            editor.update(() => {
+              const root = $getRoot();
+              root.clear();
+              const para = $createParagraphNode();
+              root.append(para);
+              // Set selection to the paragraph
+              const selection = $createRangeSelection();
+              selection.anchor.set(para.getKey(), 0, 'element');
+              selection.focus.set(para.getKey(), 0, 'element');
+              $setSelection(selection);
+            });
+            isLoadingRef.current = false;
+            return;
+          }
+        } catch (error) {
+          console.error('[EditorPlugin] Failed to check for empty paragraph:', error);
+        }
+      }
+
+      // Special case: if items is empty array, we still need to ensure editor has a paragraph
+      if (data.items.length === 0) {
+        editor.update(() => {
+          const root = $getRoot();
+          root.clear();
+          const para = $createParagraphNode();
+          root.append(para);
+        });
+        isLoadingRef.current = false;
         return;
       }
 
@@ -99,7 +148,7 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
               paragraph.setIndent(chunk.indent);
             }
 
-            if (chunk.children && Array.isArray(chunk.children)) {
+            if (chunk.children && Array.isArray(chunk.children) && chunk.children.length > 0) {
               chunk.children.forEach((textNode: TextNodeData) => {
                 const text = $createTextNode(textNode.text || '');
 
@@ -115,6 +164,9 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
 
                 paragraph.append(text);
               });
+            } else {
+              // Empty paragraph - add a text node with zero-width space to make it visible and editable
+              paragraph.append($createTextNode('\u200B'));
             }
 
             root.append(paragraph);
@@ -124,7 +176,17 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
         });
 
         if (root.isEmpty()) {
-          root.append($createParagraphNode());
+          const para = $createParagraphNode();
+          root.append(para);
+        } else {
+          // Set initial selection to the first paragraph
+          const firstChild = root.getFirstChild();
+          if (firstChild) {
+            const selection = $createRangeSelection();
+            selection.anchor.set(firstChild.getKey(), 0, 'element');
+            selection.focus.set(firstChild.getKey(), 0, 'element');
+            $setSelection(selection);
+          }
         }
       });
       isLoadingRef.current = false;
@@ -486,6 +548,30 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
             break;
           }
 
+          case 'getHtml': {
+            // Export content as HTML string
+            editor.read(() => {
+              const root = $getRoot();
+              const html = root.getChildren().map((node) => {
+                const dom = node.exportDOM(editor);
+                if (dom.element instanceof HTMLElement) {
+                  return dom.element.outerHTML;
+                }
+                if (dom.element instanceof Text) {
+                  return dom.element.textContent || '';
+                }
+                if (dom.element instanceof DocumentFragment) {
+                  const tempDiv = document.createElement('div');
+                  tempDiv.appendChild(dom.element.cloneNode(true));
+                  return tempDiv.innerHTML;
+                }
+                return '';
+              }).join('');
+              sendMessage('htmlResponse', html);
+            });
+            break;
+          }
+
           case 'focus':
             editor.focus();
             break;
@@ -557,7 +643,6 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
 
           case 'setReadOnly': {
             const readOnly = data.payload ?? false;
-            console.log('[Lexical App] ReadOnly set:', readOnly);
             setIsReadOnly(readOnly);
             editor.setEditable(!readOnly);
             break;
@@ -629,13 +714,36 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
     const contentEditableElement = document.querySelector('.editor-input');
     if (contentEditableElement) {
       contentEditableElement.addEventListener('click', handleAssociationClick, true); // true = capture phase
+
+      // Handler to ensure editor is focusable and has content
+      const ensureEditorFocusable = () => {
+        editor.update(() => {
+          const root = $getRoot();
+
+          if (root.isEmpty()) {
+            const paragraph = $createParagraphNode();
+            root.append(paragraph);
+            const selection = $createRangeSelection();
+            selection.anchor.set(paragraph.getKey(), 0, 'element');
+            selection.focus.set(paragraph.getKey(), 0, 'element');
+            $setSelection(selection);
+          }
+          // If root has content, let Lexical handle the click naturally
+          // Don't interfere with selection - let the user's tap determine cursor position
+        });
+      };
+
+      // Add both click and touchstart handlers for mobile compatibility
+      contentEditableElement.addEventListener('click', ensureEditorFocusable, false);
+      contentEditableElement.addEventListener('touchstart', ensureEditorFocusable, false);
     }
 
     // Initialize with empty content
     editor.update(() => {
       const root = $getRoot();
       if (root.isEmpty()) {
-        root.append($createParagraphNode());
+        const para = $createParagraphNode();
+        root.append(para);
       }
     });
 
@@ -803,13 +911,14 @@ function EditorPlugin({ setIsReadOnly }: EditorPluginProps) {
       }
       removeEnterCommand();
     };
-  }, [editor]);
+  }, [editor, setIsReadOnly]);
 
   return null;
 }
 
 function App() {
   const [isReadOnly, setIsReadOnly] = React.useState(false);
+  const editorRef = useRef<any>(null);
 
   const initialConfig = {
     namespace: 'MiniDocterEditor',
@@ -827,15 +936,59 @@ function App() {
     },
   };
 
+  // Handle clicks on the container to focus the editor
+  const handleContainerClick = () => {
+    // Get the contenteditable element
+    const contentEditable = document.querySelector('.editor-input') as HTMLElement;
+
+    if (contentEditable) {
+      // Focus the editor when clicking anywhere in the container
+      contentEditable.focus();
+
+      // Request React Native WebView to gain focus (needed for mobile keyboard)
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'requestFocus',
+        }));
+      }
+
+      // If the editor is empty, place cursor at the start
+      const editor = editorRef.current;
+
+      if (editor) {
+        editor.update(() => {
+          const root = $getRoot();
+
+          if (root.isEmpty()) {
+            const paragraph = $createParagraphNode();
+            root.append(paragraph);
+            const selection = $createRangeSelection();
+            selection.anchor.set(paragraph.getKey(), 0, 'element');
+            selection.focus.set(paragraph.getKey(), 0, 'element');
+            $setSelection(selection);
+          } else {
+            const firstChild = root.getFirstChild();
+            if (firstChild) {
+              const selection = $createRangeSelection();
+              selection.anchor.set(firstChild.getKey(), 0, 'element');
+              selection.focus.set(firstChild.getKey(), 0, 'element');
+              $setSelection(selection);
+            }
+          }
+        });
+      }
+    }
+  };
+
   return (
     <LexicalComposer initialConfig={initialConfig}>
-      <div className="editor-container">
+      <div className="editor-container" onClick={handleContainerClick}>
         <RichTextPlugin
           contentEditable={<ContentEditable className="editor-input" />}
           placeholder={isReadOnly ? null : <div className="editor-placeholder">Start typing...</div>}
           ErrorBoundary={LexicalErrorBoundary}
         />
-        <EditorPlugin setIsReadOnly={setIsReadOnly} />
+        <EditorPlugin setIsReadOnly={setIsReadOnly} editorRef={editorRef} />
       </div>
     </LexicalComposer>
   );

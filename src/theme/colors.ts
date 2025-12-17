@@ -54,7 +54,7 @@ export const lightColors = {
   bgSecondary: '#f5f5f5',
   bgCard: 'rgba(187, 222, 251, 0.9)',
   bgCardHover: 'rgba(187, 222, 251, 1)',
-  bgEditor: '#ffffff',
+  bgEditor: '#f8f8f8',
   bgEditorBlockquote: '#f5f5f5',
   bgToolbar: '#ffffff',
   bgUserMenu: '#ffffff',
@@ -73,18 +73,18 @@ export const lightColors = {
   borderDark: '#ddd',
 
   // Brand colors
-  primary: '#007AFF',
-  primaryHover: '#0051D5',
+  primary: '#0051D5',
+  primaryHover: '#003DA3',
   primaryLight: '#E5F1FF',
   success: '#34C759',
   warning: '#FF9500',
   danger: '#FF3B30',
 
-  // Association type colors
-  associationCharacter: '#2e7d32',
-  associationPlace: '#1565c0',
-  associationEvent: '#c62828',
-  associationItem: '#f57c00',
+  // Association type colors (muted for less glare)
+  associationCharacter: '#059669',
+  associationPlace: '#3b82f6',
+  associationEvent: '#ef4444',
+  associationItem: '#f59e0b',
 
   // Shadow colors
   shadowSm: 'rgba(0, 0, 0, 0.05)',

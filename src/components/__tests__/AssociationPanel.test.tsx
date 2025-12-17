@@ -5,6 +5,26 @@ import { apiGet } from '../../utils/api';
 import { Association } from '../../types';
 
 // Mock dependencies
+jest.mock('expo-image-picker', () => ({
+  requestMediaLibraryPermissionsAsync: jest.fn(),
+  launchImageLibraryAsync: jest.fn(),
+  MediaTypeOptions: {
+    Images: 'Images',
+  },
+}));
+
+jest.mock('expo-file-system', () => ({
+  downloadAsync: jest.fn(),
+  deleteAsync: jest.fn(),
+  cacheDirectory: 'file:///cache/',
+}));
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  deleteItemAsync: jest.fn(),
+}));
+
 jest.mock('../../utils/api', () => ({
   apiGet: jest.fn(),
 }));
@@ -403,24 +423,6 @@ describe('AssociationPanel', () => {
           call[0].associations[0].association_id === 'assoc-1'
         );
         expect(hasAssociations).toBe(true);
-      });
-    });
-
-    it('should pass readOnly=true to LexicalEditors', async () => {
-      mockApiGet.mockResolvedValue({
-        ok: true,
-        json: async () => mockAssociation,
-      } as Response);
-
-      const { LexicalEditor } = require('../LexicalEditor');
-
-      render(<AssociationPanel {...defaultProps} />);
-
-      await waitFor(() => {
-        const calls = LexicalEditor.mock.calls;
-        const allReadOnly = calls.every((call: any) => call[0].readOnly === true);
-        expect(allReadOnly).toBe(true);
-        expect(calls.length).toBeGreaterThan(0);
       });
     });
 

@@ -4,14 +4,10 @@
     "appVersionSource": "remote"
   },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "android": {
-        "gradleCommand": ":app:assembleDebug"
-      }
-    },
-    "preview": {
+    "staging": {
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "staging"
+      },
       "distribution": "internal",
       "android": {
         "buildType": "apk"
@@ -19,12 +15,13 @@
     },
     "production": {
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://stage.docter.io/api",
-        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "878388830212-0kjicm0hvvpc322q07ni82ijdqck1bhs.apps.googleusercontent.com",
-        "EXPO_PUBLIC_AMAZON_CLIENT_ID": "amzn1.application-oa2-client.a4c7f8a3627043f5a11eae34aca5ad00"
+        "EXPO_PUBLIC_APP_ENV": "production"
       },
       "android": {
-        "buildType": "apk"
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "buildConfiguration": "Release"
       }
     }
   },

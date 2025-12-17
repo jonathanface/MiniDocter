@@ -236,7 +236,7 @@ export const StoryListScreen = () => {
       borderRadius: 6,
     },
     newButtonText: {
-      color: colors.textPrimary,
+      color: '#fff',
       fontSize: 16,
       fontWeight: '600',
     },
@@ -290,7 +290,7 @@ export const StoryListScreen = () => {
       borderRadius: 4,
     },
     seriesBadgeText: {
-      color: colors.textPrimary,
+      color: '#fff',
       fontSize: 10,
       fontWeight: 'bold',
       letterSpacing: 0.5,

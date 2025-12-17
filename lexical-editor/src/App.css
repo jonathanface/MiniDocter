@@ -1,23 +1,69 @@
+html {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
 body {
   margin: 0;
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  height: 100%;
+  width: 100%;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .editor-container {
   min-height: 100vh;
-  padding: 20px;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  cursor: text;
+  /* Make the entire container trigger click events */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .editor-input {
-  min-height: 100vh;
+  flex: 1;
+  min-height: 100vh; /* At least full viewport height */
+  min-width: 100%; /* Force full width */
   outline: none;
   font-size: 17px;
   line-height: 1.6;
+  cursor: text;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 20px;
+  margin: 0;
+  /* Ensure it takes up space and is clickable everywhere */
+  touch-action: manipulation;
 }
 
+/* Ensure paragraphs have minimum height and are clickable */
 .editor-paragraph {
-  margin: 0.5em 0;
+  margin: 0;
+  padding: 0.2em 0;
+  min-height: 1.6em;
+  line-height: 1.6;
+}
+
+/* Ensure empty paragraphs take up space */
+.editor-paragraph:empty::after {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 1.6em;
+  vertical-align: bottom;
 }
 
 .editor-text-bold {

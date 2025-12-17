@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -63,7 +64,20 @@ export const AuthScreen = () => {
         </View>
 
         <Text style={styles.footer}>
-          By signing in, you agree to our Terms of Service and Privacy Policy
+          By signing in, you agree to our{' '}
+          <Text
+            style={styles.link}
+            onPress={() => Linking.openURL('https://rich.docter.io/terms.html')}
+          >
+            Terms of Service
+          </Text>{' '}
+          and{' '}
+          <Text
+            style={styles.link}
+            onPress={() => Linking.openURL('https://rich.docter.io/privacy.html')}
+          >
+            Privacy Policy
+          </Text>
         </Text>
       </View>
     </View>
@@ -132,5 +146,9 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
     paddingHorizontal: 20,
+  },
+  link: {
+    color: '#4285F4',
+    textDecorationLine: 'underline',
   },
 });

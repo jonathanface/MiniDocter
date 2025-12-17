@@ -10,12 +10,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiGet, apiPut } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useAssociations } from '../hooks/useAssociations';
 import { useDocumentSettings } from '../hooks/useDocumentSettings';
 import { AssociationPanel } from '../components/AssociationPanel';
@@ -40,6 +42,7 @@ export const StoryEditorScreen = () => {
   const params = route.params as { storyId: string } | undefined;
   const storyId = params?.storyId;
   const { colors, theme } = useTheme();
+  const { user, refreshUser } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [story, setStory] = useState<Story | null>(null);
@@ -48,6 +51,8 @@ export const StoryEditorScreen = () => {
   const [associationPanelVisible, setAssociationPanelVisible] = useState(false);
   const [selectedAssociationId, setSelectedAssociationId] = useState<string | null>(null);
   const [associationsListVisible, setAssociationsListVisible] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Formatting state
   const [isBold, setIsBold] = useState(false);
@@ -135,9 +140,11 @@ export const StoryEditorScreen = () => {
     }
   };
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (silent = false) => {
     if (!storyId || !currentChapterId) {
-      Alert.alert('Error', 'No story or chapter selected');
+      if (!silent) {
+        Alert.alert('Error', 'No story or chapter selected');
+      }
       return;
     }
 
@@ -166,16 +173,116 @@ export const StoryEditorScreen = () => {
         throw new Error(`Failed to save: ${response.status}`);
       }
 
-      Alert.alert('Success', 'Story saved successfully');
+      if (!silent) {
+        Alert.alert('Success', 'Story saved successfully');
+      }
     } catch (error) {
       console.error('Failed to save story:', error);
-      Alert.alert('Error', 'Failed to save story. Please try again.');
+      if (!silent) {
+        Alert.alert('Error', 'Failed to save story. Please try again.');
+      }
     } finally {
       setSaving(false);
     }
   }, [storyId, currentChapterId]);
 
-  if (loading) {
+  const handleExport = async (format: 'pdf' | 'docx' | 'epub') => {
+    try {
+      // Check subscription status from current user object
+      if (!user?.subscriber) {
+        Alert.alert(
+          'Subscription Required',
+          'Exporting stories is only available to subscribers. Would you like to subscribe?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Subscribe', onPress: () => navigation.navigate('Subscribe' as never) },
+          ]
+        );
+        return;
+      }
+
+      if (!story || !storyId) {
+        Alert.alert('Error', 'No story loaded');
+        return;
+      }
+
+      setExporting(true);
+      setExportModalVisible(false);
+      // Save current chapter first (silently, without showing success alert)
+      await handleSave(true);
+
+      // Fetch full story with all chapters and content in one request
+      const fullStoryResponse = await apiGet(`/stories/${storyId}/full`);
+
+      if (!fullStoryResponse.ok) {
+        throw new Error('Failed to load story content');
+      }
+
+      const fullStoryData = await fullStoryResponse.json();
+
+      // Collect HTML content from all chapters
+      const htmlByChapter: Array<{ chapter: string; html: string }> = [];
+
+      for (const chapterWithContent of fullStoryData.chapters_with_contents || []) {
+        const chapterTitle = chapterWithContent.chapter.title;
+        const blocks = chapterWithContent.blocks;
+
+        // Send Lexical JSON as a special format that backend can detect and convert
+        // The backend will see this starts with __LEXICAL__ and convert it
+        htmlByChapter.push({
+          chapter: chapterTitle,
+          html: `__LEXICAL__${JSON.stringify(blocks)}`,
+        });
+      }
+
+      // Call export API
+      const exportPayload = {
+        story_id: storyId,
+        html_by_chapter: htmlByChapter,
+        title: story.title,
+        type: format,
+        author: user?.first_name ? `${user.first_name}${user.last_name ? ` ${user.last_name}` : ''}` : user?.email || 'Unknown',
+      };
+
+      const exportResponse = await apiPut(`/stories/${storyId}/export?type=${format}`, exportPayload);
+
+      if (exportResponse.status === 402) {
+        Alert.alert(
+          'Subscription Required',
+          'Free accounts are unable to export their stories.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Subscribe', onPress: () => navigation.navigate('Subscribe' as never) },
+          ]
+        );
+        return;
+      }
+
+      if (!exportResponse.ok) {
+        throw new Error(`Export failed: ${exportResponse.status}`);
+      }
+
+      const result = await exportResponse.json();
+
+      if (result.url) {
+        Alert.alert(
+          'Export Complete',
+          'Your document is ready!',
+          [
+            { text: 'OK', style: 'cancel' },
+            { text: 'Open', onPress: () => Linking.openURL(result.url) },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      Alert.alert('Export Failed', error instanceof Error ? error.message : 'An error occurred while exporting');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  if (loading && !story) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -206,17 +313,30 @@ export const StoryEditorScreen = () => {
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {story.title}
         </Text>
-        <TouchableOpacity
-          onPress={handleSave}
-          style={[styles.saveButton, { backgroundColor: colors.primary }]}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.saveButtonText}>Save</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => setExportModalVisible(true)}
+            style={[styles.iconButton]}
+            disabled={exporting}
+          >
+            {exporting ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <MaterialIcons name="file-download" size={24} color={user?.subscriber ? colors.primary : colors.textSecondary} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => handleSave()}
+            style={[styles.saveButton, { backgroundColor: colors.primary }]}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.saveButtonText}>Save</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Chapter Selector */}
@@ -238,7 +358,7 @@ export const StoryEditorScreen = () => {
                   style={[
                     styles.chapterTabText,
                     { color: colors.textSecondary },
-                    currentChapterId === chapter.id && { color: colors.textPrimary, fontWeight: '600' },
+                    currentChapterId === chapter.id && { color: '#fff', fontWeight: '600' },
                   ]}
                 >
                   {chapter.title}
@@ -373,7 +493,7 @@ export const StoryEditorScreen = () => {
         transparent={true}
         onRequestClose={() => setAssociationsListVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={styles.associationsModalOverlay}>
           <SafeAreaView style={[styles.associationsListPanel, { backgroundColor: colors.bgPrimary }]} edges={['bottom']}>
             <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
               <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Associations</Text>
@@ -420,6 +540,62 @@ export const StoryEditorScreen = () => {
           setSelectedAssociationId(null);
         }}
       />
+
+      {/* Export Modal */}
+      <Modal
+        visible={exportModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExportModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.exportModal, { backgroundColor: colors.bgModal }]}>
+            <Text style={[styles.exportModalTitle, { color: colors.textPrimary }]}>
+              Export Story
+            </Text>
+            {!user?.subscriber && (
+              <Text style={[styles.exportWarning, { color: colors.warning }]}>
+                Subscription required to export stories
+              </Text>
+            )}
+            <TouchableOpacity
+              style={[styles.exportOption, { borderColor: colors.borderMedium }]}
+              onPress={() => handleExport('pdf')}
+            >
+              <MaterialIcons name="picture-as-pdf" size={24} color={colors.primary} />
+              <Text style={[styles.exportOptionText, { color: colors.textPrimary }]}>
+                Export as PDF
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.exportOption, { borderColor: colors.borderMedium }]}
+              onPress={() => handleExport('docx')}
+            >
+              <MaterialIcons name="description" size={24} color={colors.primary} />
+              <Text style={[styles.exportOptionText, { color: colors.textPrimary }]}>
+                Export as DOCX
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.exportOption, { borderColor: colors.borderMedium }]}
+              onPress={() => handleExport('epub')}
+            >
+              <MaterialIcons name="menu-book" size={24} color={colors.primary} />
+              <Text style={[styles.exportOptionText, { color: colors.textPrimary }]}>
+                Export as EPUB
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.cancelButton, { backgroundColor: colors.bgSecondary }]}
+              onPress={() => setExportModalVisible(false)}
+            >
+              <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -454,6 +630,14 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     fontSize: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconButton: {
+    padding: 8,
   },
   saveButton: {
     paddingHorizontal: 16,
@@ -560,7 +744,7 @@ const styles = StyleSheet.create({
   fabText: {
     fontSize: 24,
   },
-  modalOverlay: {
+  associationsModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
@@ -596,5 +780,55 @@ const styles = StyleSheet.create({
   associationType: {
     fontSize: 12,
     textTransform: 'uppercase',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  exportModal: {
+    width: '80%',
+    maxWidth: 400,
+    borderRadius: 12,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  exportModalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  exportWarning: {
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  exportOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 12,
+    gap: 12,
+  },
+  exportOptionText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  cancelButton: {
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
   },
 });
