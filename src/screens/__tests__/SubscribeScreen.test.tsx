@@ -56,7 +56,6 @@ describe('SubscribeScreen', () => {
     it('should render all feature items', () => {
       const { getByText } = render(<SubscribeScreen />);
 
-      expect(getByText('Unlimited documents')).toBeTruthy();
       expect(getByText('Unlimited associations')).toBeTruthy();
       expect(getByText('Export to other formats')).toBeTruthy();
       expect(getByText('Cancel anytime')).toBeTruthy();
@@ -95,14 +94,13 @@ describe('SubscribeScreen', () => {
       const { getAllByText } = render(<SubscribeScreen />);
 
       const checkmarks = getAllByText('✓');
-      expect(checkmarks).toHaveLength(4); // One for each feature
+      expect(checkmarks).toHaveLength(3); // One for each feature
     });
 
     it('should render features in correct order', () => {
       const { getByText } = render(<SubscribeScreen />);
 
       const features = [
-        'Unlimited documents',
         'Unlimited associations',
         'Export to other formats',
         'Cancel anytime',
@@ -186,7 +184,7 @@ describe('SubscribeScreen', () => {
       expect(getByText('Full membership')).toBeTruthy();
 
       // Features section
-      expect(getByText('Unlimited documents')).toBeTruthy();
+      expect(getByText('Unlimited associations')).toBeTruthy();
 
       // Button section
       expect(getByText('Subscribe for $5/mo →')).toBeTruthy();

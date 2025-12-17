@@ -8,20 +8,24 @@ import {
   ScrollView,
   Linking,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
-import { getBillingSummary, createPortalSession } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
+import { getBillingSummary, createPortalSession, apiDelete } from '../utils/api';
 import { SubscriptionSummary } from '../types/User';
 import { useNavigation } from '@react-navigation/native';
 
 export const AccountScreen = () => {
   const { colors } = useTheme();
+  const { signOut } = useAuth();
   const navigation = useNavigation();
   const [data, setData] = useState<SubscriptionSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processingPortal, setProcessingPortal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -86,6 +90,57 @@ export const AccountScreen = () => {
 
   const handleSubscribe = () => {
     navigation.navigate('Subscribe' as never);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This action cannot be undone and will permanently delete:\n\n• All your stories and chapters\n• All associations and images\n• Your subscription (if active)\n• All account data',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: confirmDeleteAccount,
+        },
+      ]
+    );
+  };
+
+  const confirmDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      const response = await apiDelete('/user');
+
+      if (!response.ok) {
+        throw new Error('Failed to delete account');
+      }
+
+      Alert.alert(
+        'Account Deleted',
+        'Your account has been permanently deleted.',
+        [
+          {
+            text: 'OK',
+            onPress: async () => {
+              await signOut();
+            },
+          },
+        ],
+        { cancelable: false }
+      );
+    } catch (err) {
+      console.error('Failed to delete account:', err);
+      Alert.alert(
+        'Error',
+        'Failed to delete account. Please try again or contact support.'
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   const getStatusColor = () => {
@@ -219,6 +274,37 @@ export const AccountScreen = () => {
     loader: {
       marginVertical: 20,
     },
+    dangerZone: {
+      marginTop: 48,
+      paddingTop: 24,
+      borderTopWidth: 1,
+      borderTopColor: colors.borderLight,
+    },
+    dangerZoneTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: colors.danger,
+      marginBottom: 8,
+    },
+    dangerZoneText: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginBottom: 16,
+      lineHeight: 20,
+    },
+    deleteButton: {
+      backgroundColor: colors.danger,
+      paddingVertical: 14,
+      paddingHorizontal: 24,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    deleteButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#fff',
+    },
   });
 
   return (
@@ -299,6 +385,24 @@ export const AccountScreen = () => {
           >
             <Text style={styles.closeButtonText}>Close</Text>
           </TouchableOpacity>
+
+          <View style={styles.dangerZone}>
+            <Text style={styles.dangerZoneTitle}>Danger Zone</Text>
+            <Text style={styles.dangerZoneText}>
+              Permanently delete your account and all associated data. This action cannot be undone.
+            </Text>
+            <TouchableOpacity
+              style={[styles.deleteButton, deletingAccount && styles.buttonDisabled]}
+              onPress={handleDeleteAccount}
+              disabled={deletingAccount}
+            >
+              {deletingAccount ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.deleteButtonText}>Delete Account</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </View>

@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 import { AuthScreen } from './src/screens/AuthScreen';
+import { WelcomeScreen } from './src/screens/WelcomeScreen';
 import { StoryListScreen } from './src/screens/StoryListScreen';
 import { CreateStoryScreen } from './src/screens/CreateStoryScreen';
 import { StoryEditorScreen } from './src/screens/StoryEditorScreen';
@@ -17,7 +18,18 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 const Stack = createNativeStackNavigator();
 
 function AppNavigator() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, showWelcome, isReturningUser, clearWelcomeFlags } = useAuth();
+  const navigationRef = React.useRef<any>(null);
+
+  // When showWelcome changes from true to false, navigate to StoryList
+  React.useEffect(() => {
+    if (user && !showWelcome && navigationRef.current) {
+      // Small delay to ensure navigation is ready
+      setTimeout(() => {
+        navigationRef.current?.navigate('StoryList');
+      }, 100);
+    }
+  }, [showWelcome, user]);
 
   if (isLoading) {
     return (
@@ -28,10 +40,18 @@ function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator>
+    <NavigationContainer ref={navigationRef}>
+      <Stack.Navigator
+        initialRouteName={user && showWelcome ? 'Welcome' : user ? 'StoryList' : 'Auth'}
+      >
         {user ? (
           <>
+            <Stack.Screen
+              name="Welcome"
+              options={{ headerShown: false }}
+            >
+              {() => <WelcomeScreen isReturningUser={isReturningUser} />}
+            </Stack.Screen>
             <Stack.Screen
               name="StoryList"
               component={StoryListScreen}

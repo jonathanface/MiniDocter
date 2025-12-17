@@ -54,7 +54,7 @@ reload:
 	@echo "Reloading React Native app..."
 	adb shell input text "RR"
 
-# Build shortcuts
+# Build shortcuts (local)
 .PHONY: build-debug
 build-debug:
 	@echo "Building debug APK..."
@@ -64,6 +64,62 @@ build-debug:
 build-release:
 	@echo "Building release APK..."
 	npx expo run:android --variant release
+
+# EAS Cloud Build shortcuts (reads ENV from .env file)
+# Read EXPO_PUBLIC_APP_ENV from .env file
+ifneq (,$(wildcard .env))
+ENV := $(shell grep '^EXPO_PUBLIC_APP_ENV=' .env | cut -d '=' -f2)
+else
+ENV := not_found
+endif
+
+.PHONY: show-env
+show-env:
+	@if [ "$(ENV)" = "not_found" ]; then \
+		echo "ERROR: No .env file found"; \
+	elif [ -z "$(ENV)" ]; then \
+		echo "ERROR: EXPO_PUBLIC_APP_ENV not set in .env"; \
+	else \
+		echo "Current EXPO_PUBLIC_APP_ENV from .env: $(ENV)"; \
+	fi
+
+# Validation function for EAS builds
+define validate_env
+	@if [ "$(ENV)" = "not_found" ]; then \
+		echo "ERROR: No .env file found. Please create one with EXPO_PUBLIC_APP_ENV set."; \
+		exit 1; \
+	elif [ -z "$(ENV)" ]; then \
+		echo "ERROR: EXPO_PUBLIC_APP_ENV not found in .env file. Please set it to: local, staging, or production"; \
+		exit 1; \
+	elif [ "$(ENV)" = "local" ]; then \
+		echo "ERROR: Cannot use ENV=local for EAS builds. Your .env file is set to 'local'."; \
+		echo "Use 'make build-debug' or 'make build-release' for local builds,"; \
+		echo "or change EXPO_PUBLIC_APP_ENV in .env to 'staging' or 'production'."; \
+		exit 1; \
+	elif [ "$(ENV)" != "staging" ] && [ "$(ENV)" != "production" ]; then \
+		echo "ERROR: Invalid ENV value in .env: $(ENV)"; \
+		echo "EXPO_PUBLIC_APP_ENV must be one of: local, staging, or production"; \
+		exit 1; \
+	fi
+endef
+
+.PHONY: eas-build
+eas-build:
+	$(call validate_env)
+	@echo "Building Android app for $(ENV) environment (from .env)..."
+	npx eas-cli build --platform android --profile $(ENV)
+
+.PHONY: eas-build-ios
+eas-build-ios:
+	$(call validate_env)
+	@echo "Building iOS app for $(ENV) environment (from .env)..."
+	npx eas-cli build --platform ios --profile $(ENV)
+
+.PHONY: eas-build-all
+eas-build-all:
+	$(call validate_env)
+	@echo "Building both platforms for $(ENV) environment (from .env)..."
+	npx eas-cli build --platform all --profile $(ENV)
 
 .PHONY: install-release
 install-release:
@@ -86,6 +142,8 @@ start:
 
 .PHONY: start-clear
 start-clear:
+	@echo "Rebuilding Lexical editor..."
+	npm run build:lexical
 	@echo "Starting Expo dev server (clearing cache)..."
 	npx expo start --clear
 
@@ -147,12 +205,19 @@ help:
 	@echo "  make logcat-app      - Show app-specific logs"
 	@echo "  make reload          - Reload the React Native app"
 	@echo ""
-	@echo "Build Commands:"
-	@echo "  make build-debug     - Build debug APK"
-	@echo "  make build-release   - Build release APK"
+	@echo "Build Commands (Local):"
+	@echo "  make build-debug     - Build debug APK locally"
+	@echo "  make build-release   - Build release APK locally"
 	@echo "  make install-release - Install release APK to device"
 	@echo "  make clean           - Clean build artifacts"
 	@echo "  make clean-build     - Clean and rebuild release"
+	@echo ""
+	@echo "Build Commands (EAS Cloud):"
+	@echo "  make show-env       - Show current EXPO_PUBLIC_APP_ENV from .env"
+	@echo "  make eas-build      - Build Android on EAS (reads ENV from .env)"
+	@echo "  make eas-build-ios  - Build iOS on EAS (reads ENV from .env)"
+	@echo "  make eas-build-all  - Build both platforms on EAS (reads ENV from .env)"
+	@echo "  Note: Set EXPO_PUBLIC_APP_ENV in .env to: staging or production"
 	@echo ""
 	@echo "Development Commands:"
 	@echo "  make start           - Start Expo dev server"
@@ -172,3 +237,5 @@ help:
 	@echo "Examples:"
 	@echo "  make connect PHONE_IP=192.168.1.100 PHONE_PORT=5555"
 	@echo "  make pair PHONE_IP=192.168.1.100 PAIR_PORT=37171"
+	@echo "  make eas-build           # Uses ENV from .env file"
+	@echo "  make eas-build-all       # Build both iOS and Android"

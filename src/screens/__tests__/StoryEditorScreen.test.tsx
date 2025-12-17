@@ -82,6 +82,31 @@ jest.mock('../../components/AssociationPanel', () => ({
   },
 }));
 
+jest.mock('@expo/vector-icons', () => ({
+  MaterialIcons: (props: any) => {
+    const React = require('react');
+    const { View, Text } = require('react-native');
+    return React.createElement(
+      View,
+      { testID: `material-icon-${props.name}` },
+      React.createElement(Text, null, props.name)
+    );
+  },
+}));
+
+// Mock AuthContext with subscriber user
+const mockUser = {
+  email: 'test@example.com',
+  subscriber: false,
+  admin: false,
+};
+
+jest.mock('../../contexts/AuthContext', () => ({
+  useAuth: jest.fn(() => ({
+    user: mockUser,
+  })),
+}));
+
 describe('StoryEditorScreen', () => {
   const mockStory = {
     story_id: 'test-story-id',
@@ -195,7 +220,7 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should display story title in header', async () => {
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Test Story')).toBeTruthy();
@@ -203,7 +228,7 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should display all chapters', async () => {
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Chapter 1')).toBeTruthy();
@@ -212,7 +237,7 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should display Back button', async () => {
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('← Back')).toBeTruthy();
@@ -220,7 +245,7 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should display Save button', async () => {
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Save')).toBeTruthy();
@@ -275,7 +300,7 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should load content when chapter is selected', async () => {
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Chapter 2')).toBeTruthy();
@@ -342,11 +367,9 @@ describe('StoryEditorScreen', () => {
           ok: true,
           json: async () => ({}),
         } as Response);
-      });
-
+      
       render(<StoryEditorScreen />);
 
-      await waitFor(() => {
         expect(Alert.alert).toHaveBeenCalledWith(
           'Error',
           'Failed to load chapter content'
@@ -378,11 +401,30 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should show error when editor content is unavailable', async () => {
+      mockApiGet.mockImplementation((url: string) => {
+        if (url === '/stories/test-story-id') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockStory,
+          } as Response);
+        }
+        if (url.includes('/content')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockChapterContent,
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({}),
+        } as Response);
+      });
+
       mockApiPut.mockResolvedValue({
         ok: true,
       } as Response);
 
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Save')).toBeTruthy();
@@ -399,7 +441,7 @@ describe('StoryEditorScreen', () => {
         ok: true,
       } as Response);
 
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Save')).toBeTruthy();
@@ -413,18 +455,35 @@ describe('StoryEditorScreen', () => {
 
       fireEvent.press(getByText('Save'));
 
-      await waitFor(() => {
-        // Note: This test might not work perfectly due to ref mocking complexity
-        // But it demonstrates the test structure
-      });
+      // Note: This test might not work perfectly due to ref mocking complexity
+      // But it demonstrates the test structure
     });
 
     it('should show success alert when save succeeds', async () => {
+      mockApiGet.mockImplementation((url: string) => {
+        if (url === '/stories/test-story-id') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockStory,
+          } as Response);
+        }
+        if (url.includes('/content')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockChapterContent,
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({}),
+        } as Response);
+      });
+
       mockApiPut.mockResolvedValue({
         ok: true,
       } as Response);
 
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Save')).toBeTruthy();
@@ -434,13 +493,32 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should show error alert when save fails', async () => {
+      mockApiGet.mockImplementation((url: string) => {
+        if (url === '/stories/test-story-id') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockStory,
+          } as Response);
+        }
+        if (url.includes('/content')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockChapterContent,
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({}),
+        } as Response);
+      });
+
       mockApiPut.mockResolvedValue({
         ok: false,
         status: 500,
         text: async () => 'Server error',
       } as Response);
 
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Save')).toBeTruthy();
@@ -473,7 +551,7 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should go back when Back button is pressed', async () => {
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('← Back')).toBeTruthy();
@@ -504,7 +582,7 @@ describe('StoryEditorScreen', () => {
         json: async () => null,
       } as Response);
 
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Story not found')).toBeTruthy();
@@ -518,7 +596,7 @@ describe('StoryEditorScreen', () => {
         json: async () => null,
       } as Response);
 
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('Go Back')).toBeTruthy();
@@ -565,7 +643,7 @@ describe('StoryEditorScreen', () => {
     });
 
     it('should display associations button when associations exist', async () => {
-      const { getByText } = render(<StoryEditorScreen />);
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
       await waitFor(() => {
         expect(getByText('📚')).toBeTruthy();
@@ -652,6 +730,315 @@ describe('StoryEditorScreen', () => {
       });
 
       // Editor should receive spellcheck=false (structure test)
+    });
+  });
+
+  describe('Export Functionality', () => {
+    // Helper to open export modal
+    const openExportModal = async (getByTestId: any, getByText: any) => {
+      await waitFor(() => {
+        expect(getByTestId('material-icon-file-download')).toBeTruthy();
+      });
+
+      const exportButton = getByTestId('material-icon-file-download').parent?.parent;
+      if (exportButton) {
+        fireEvent.press(exportButton);
+      }
+
+      await waitFor(() => {
+        expect(getByText('Export Story')).toBeTruthy();
+      });
+    };
+
+    beforeEach(() => {
+      mockApiGet.mockImplementation((url: string) => {
+        if (url === '/stories/test-story-id') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockStory,
+          } as Response);
+        }
+        if (url.includes('/content')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockChapterContent,
+          } as Response);
+        }
+        if (url === '/stories/test-story-id/full') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              story: mockStory,
+              chapters_with_contents: [
+                {
+                  chapter: { id: 'chapter-1', title: 'Chapter 1' },
+                  blocks: { items: [{ chunk: '{}', key_id: '1', place: '0' }] },
+                },
+              ],
+            }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({}),
+        } as Response);
+      });
+
+      mockApiPut.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, url: 'https://example.com/export.pdf' }),
+      } as Response);
+    });
+
+    it('should show export button in header', async () => {
+      const { getByTestId } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('material-icon-file-download')).toBeTruthy();
+      });
+    });
+
+    it('should open export modal when export button is pressed', async () => {
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+    });
+
+    it('should show all export format options in modal', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      await waitFor(() => {
+        expect(getByText('Export as PDF')).toBeTruthy();
+        expect(getByText('Export as DOCX')).toBeTruthy();
+        expect(getByText('Export as EPUB')).toBeTruthy();
+      });
+    });
+
+    it('should close export modal when Cancel is pressed', async () => {
+      const { getByTestId, getByText, queryByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Cancel'));
+
+      await waitFor(() => {
+        expect(queryByText('Export Story')).toBeNull();
+      });
+    });
+
+    it('should show subscription prompt for non-subscribers', async () => {
+      // Ensure user is not a subscriber
+      mockUser.subscriber = false;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      // Should show subscription warning in the modal
+      await waitFor(() => {
+        expect(getByText(/Subscription required to export stories/i)).toBeTruthy();
+      });
+    });
+
+    it('should allow export for subscribers', async () => {
+      // Set user as subscriber
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(mockApiGet).toHaveBeenCalledWith('/stories/test-story-id/full');
+      });
+    });
+
+    it('should fetch full story data when exporting', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(mockApiGet).toHaveBeenCalledWith('/stories/test-story-id/full');
+      });
+    });
+
+    it('should send export request with Lexical JSON prefix', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledWith(
+          '/stories/test-story-id/export?type=pdf',
+          expect.objectContaining({
+            html_by_chapter: expect.arrayContaining([
+              expect.objectContaining({
+                html: expect.stringContaining('__LEXICAL__'),
+              }),
+            ]),
+          })
+        );
+      });
+    });
+
+    it('should show success alert with download link after export', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith(
+          'Export Complete',
+          expect.any(String),
+          expect.arrayContaining([
+            expect.objectContaining({
+              text: 'Open',
+            }),
+            expect.objectContaining({
+              text: 'OK',
+            }),
+          ])
+        );
+      });
+    });
+
+    it('should show error alert when export fails', async () => {
+      mockUser.subscriber = true;
+
+      mockApiPut.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => 'Server error',
+      } as Response);
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith(
+          'Export Failed',
+          expect.any(String)
+        );
+      });
+    });
+
+    it('should handle network error during export', async () => {
+      mockUser.subscriber = true;
+
+      mockApiGet.mockImplementation((url: string) => {
+        if (url === '/stories/test-story-id') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockStory,
+          } as Response);
+        }
+        if (url === '/stories/test-story-id/full') {
+          return Promise.reject(new Error('Network error'));
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockChapterContent,
+        } as Response);
+      });
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith(
+          'Export Failed',
+          expect.any(String)
+        );
+      });
+    });
+
+    it('should support DOCX export format', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as DOCX'));
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledWith(
+          '/stories/test-story-id/export?type=docx',
+          expect.any(Object)
+        );
+      });
+    });
+
+    it('should support EPUB export format', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as EPUB'));
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledWith(
+          '/stories/test-story-id/export?type=epub',
+          expect.any(Object)
+        );
+      });
+    });
+
+    it('should close modal after export starts', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText, queryByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(queryByText('Export Story')).toBeNull();
+      });
+    });
+
+    it('should not navigate away during export', async () => {
+      mockUser.subscriber = true;
+
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await openExportModal(getByTestId, getByText);
+
+      fireEvent.press(getByText('Export as PDF'));
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalled();
+        // Should not have navigated back
+        expect(mockGoBack).not.toHaveBeenCalled();
+      });
     });
   });
 });

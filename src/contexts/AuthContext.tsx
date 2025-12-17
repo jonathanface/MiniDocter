@@ -3,6 +3,8 @@ import { UserDetails } from '../types';
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
+import { API_BASE_URL, USE_EXPO_GO } from '../config/environment';
 
 interface AuthContextType {
   user: UserDetails | null;
@@ -11,6 +13,10 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   setUser: (user: UserDetails | null) => void;
   getSessionToken: () => Promise<string | null>;
+  refreshUser: () => Promise<UserDetails | null>;
+  showWelcome: boolean;
+  isReturningUser: boolean;
+  clearWelcomeFlags: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,19 +30,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [listenerReady, setListenerReady] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [isReturningUser, setIsReturningUser] = useState(false);
+  const [processedTokens, setProcessedTokens] = useState<Set<string>>(new Set());
 
   // Handle deep link callback for OAuth
   const handleDeepLinkCallback = async (path: string | null, queryParams: Record<string, string | string[] | undefined> | null | undefined) => {
-    if (path !== 'callback' && path !== 'auth/callback') {
+    // Accept both 'auth/callback' and just 'callback' paths
+    if (path !== 'callback' && path !== 'auth/callback' && !path?.endsWith('/callback')) {
       return;
     }
 
+    // If user is already logged in, ignore OAuth callbacks (they're likely stale deep links)
+    if (user) {
+      return;
+    }
 
     // Extract and decode the token from the deep link
     if (queryParams && queryParams.token) {
+      const token = queryParams.token as string;
+
+      // Check if we've already processed this token to prevent duplicate processing
+      if (processedTokens.has(token)) {
+        return;
+      }
+
+      setProcessedTokens(prev => new Set(prev).add(token));
+
+      // Check for new_user or returning_user flags
+      const isNewUser = queryParams.new_user === 'true';
+      const isReturning = queryParams.returning_user === 'true';
+
       try {
-        const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
-        const baseUrl = apiBaseUrl.replace(/\/api$/, '');
+        const baseUrl = API_BASE_URL.replace(/\/api$/, '');
 
         // Call the session endpoint to establish a session cookie
         const response = await fetch(`${baseUrl}/auth/session`, {
@@ -60,6 +86,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           setUser(data.user);
+
+          // Set welcome screen flags
+          if (isNewUser || isReturning) {
+            setShowWelcome(true);
+            setIsReturningUser(isReturning);
+          }
+
           setIsLoading(false);
         } else {
           const errorText = await response.text();
@@ -118,9 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkSession = async () => {
     try {
-      const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
-
-      const response = await fetch(`${apiBaseUrl}/user`, {
+      const response = await fetch(`${API_BASE_URL}/user`, {
         headers: {
           'ngrok-skip-browser-warning': 'true',
         },
@@ -159,16 +190,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(true);
 
       // Open backend OAuth endpoint with custom redirect
-      const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
       // Auth endpoints are at the root (e.g., /auth/google), not under /api
-      const baseUrl = apiBaseUrl.replace(/\/api$/, '');
-      const redirectUrl = 'minidocter://auth/callback';
-      const authUrl = `${baseUrl}/auth/${provider}?next=${encodeURIComponent(redirectUrl)}`;
+      const baseUrl = API_BASE_URL.replace(/\/api$/, '');
 
+      let redirectUrl: string;
+      if (USE_EXPO_GO) {
+        // For Expo Go, use Linking.createURL which handles the correct format
+        // This creates: exp://[host]:[port]/--/auth/callback
+        redirectUrl = Linking.createURL('auth/callback');
+      } else {
+        // Production: use custom scheme
+        redirectUrl = 'minidocter://auth/callback';
+      }
+
+      const authUrl = `${baseUrl}/auth/${provider}?next=${encodeURIComponent(redirectUrl)}`;
 
       // Open OAuth flow in browser
       const result = await WebBrowser.openBrowserAsync(authUrl);
-
 
       // If browser was dismissed without redirect, user might have cancelled
       if (result.type === 'cancel') {
@@ -194,8 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Call backend logout endpoint if we have a token
       if (sessionToken) {
         try {
-          const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
-          const baseUrl = apiBaseUrl.replace(/\/api$/, '');
+          const baseUrl = API_BASE_URL.replace(/\/api$/, '');
 
           await fetch(`${baseUrl}/auth/logout`, {
             method: 'DELETE',
@@ -230,8 +267,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const refreshUser = async (): Promise<UserDetails | null> => {
+    try {
+      const sessionToken = await SecureStore.getItemAsync('session_token');
+      const url = `${API_BASE_URL}/user`;
+
+      const headers: Record<string, string> = {
+        'ngrok-skip-browser-warning': 'true',
+      };
+
+      if (sessionToken) {
+        headers['Authorization'] = `Bearer ${sessionToken}`;
+      }
+
+      const response = await fetch(url, {
+        headers,
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const contentType = response.headers.get('content-type');
+
+        if (contentType && contentType.includes('application/json')) {
+          const userData = await response.json();
+          setUser(userData);
+          return userData;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('[AuthContext] Failed to refresh user:', error);
+      return null;
+    }
+  };
+
+  const clearWelcomeFlags = () => {
+    setShowWelcome(false);
+    setIsReturningUser(false);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, signIn, signOut, setUser, getSessionToken }}>
+    <AuthContext.Provider value={{
+      user,
+      isLoading,
+      signIn,
+      signOut,
+      setUser,
+      getSessionToken,
+      refreshUser,
+      showWelcome,
+      isReturningUser,
+      clearWelcomeFlags,
+    }}>
       {children}
     </AuthContext.Provider>
   );

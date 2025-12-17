@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { useNavigation } from '@react-navigation/native';
+import { API_BASE_URL } from '../config/environment';
 
 export const SubscribeScreen = () => {
   const { colors } = useTheme();
@@ -16,7 +17,7 @@ export const SubscribeScreen = () => {
 
   const handleCheckout = async () => {
     // Open web checkout in browser
-    const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace('/api', '') || 'https://rich.docter.io';
+    const baseUrl = API_BASE_URL.replace('/api', '');
     const checkoutUrl = `${baseUrl}/checkout`;
 
     try {
@@ -32,7 +33,6 @@ export const SubscribeScreen = () => {
   };
 
   const features = [
-    'Unlimited documents',
     'Unlimited associations',
     'Export to other formats',
     'Cancel anytime',
@@ -143,6 +143,7 @@ export const SubscribeScreen = () => {
       lineHeight: 18,
     },
     link: {
+      color: colors.primary,
       textDecorationLine: 'underline',
     },
     closeButton: {
@@ -193,8 +194,19 @@ export const SubscribeScreen = () => {
 
               <Text style={styles.disclaimer}>
                 By subscribing you agree to our{' '}
-                <Text style={styles.link}>Terms</Text> and{' '}
-                <Text style={styles.link}>Privacy Policy</Text>.
+                <Text
+                  style={styles.link}
+                  onPress={() => Linking.openURL('https://rich.docter.io/terms.html')}
+                >
+                  Terms
+                </Text>{' '}
+                and{' '}
+                <Text
+                  style={styles.link}
+                  onPress={() => Linking.openURL('https://rich.docter.io/privacy.html')}
+                >
+                  Privacy Policy
+                </Text>.
               </Text>
             </View>
           </View>

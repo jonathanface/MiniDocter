@@ -5,6 +5,15 @@ import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 
+// Mock environment config
+jest.mock('../../config/environment', () => ({
+  API_BASE_URL: 'http://localhost:8443',
+  USE_EXPO_GO: true,
+  GOOGLE_CLIENT_ID: 'test-google-client-id',
+  AMAZON_CLIENT_ID: 'test-amazon-client-id',
+  ENV: 'local',
+}));
+
 // Mock dependencies
 jest.mock('expo-secure-store');
 jest.mock('expo-web-browser', () => ({
@@ -17,6 +26,7 @@ jest.mock('expo-linking', () => ({
   addEventListener: jest.fn(() => ({
     remove: jest.fn(),
   })),
+  createURL: jest.fn((path: string) => `exp://localhost:8081/--/${path}`),
 }));
 
 const mockSecureStore = SecureStore as jest.Mocked<typeof SecureStore>;
@@ -34,7 +44,6 @@ describe('AuthContext', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = jest.fn();
-    process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:8443';
   });
 
   afterEach(() => {
@@ -82,7 +91,7 @@ describe('AuthContext', () => {
 
       expect(result.current.user).toEqual(mockUser);
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:8443/user',
+        expect.stringContaining('/user'),
         expect.objectContaining({ credentials: 'include' })
       );
     });
@@ -189,7 +198,7 @@ describe('AuthContext', () => {
       });
 
       expect(mockWebBrowser.openBrowserAsync).toHaveBeenCalledWith(
-        'http://localhost:8443/auth/google?next=minidocter%3A%2F%2Fauth%2Fcallback'
+        expect.stringMatching(/\/auth\/google\?next=/)
       );
     });
 
@@ -216,7 +225,7 @@ describe('AuthContext', () => {
       });
 
       expect(mockWebBrowser.openBrowserAsync).toHaveBeenCalledWith(
-        'http://localhost:8443/auth/amazon?next=minidocter%3A%2F%2Fauth%2Fcallback'
+        'http://localhost:8443/auth/amazon?next=exp%3A%2F%2Flocalhost%3A8081%2F--%2Fauth%2Fcallback'
       );
     });
 

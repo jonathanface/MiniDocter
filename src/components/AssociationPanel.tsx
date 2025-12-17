@@ -8,10 +8,14 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import * as SecureStore from 'expo-secure-store';
 import { Association } from '../types';
-import { apiGet } from '../utils/api';
+import { apiGet, apiPut, apiPost, getApiBaseUrl } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
 import { LexicalEditor, LexicalEditorRef } from './LexicalEditor';
 import { useAssociations, Association as AssociationFromHook } from '../hooks/useAssociations';
@@ -32,9 +36,11 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
   const { colors } = useTheme();
   const [association, setAssociation] = useState<Association | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [summaryEditorReady, setSummaryEditorReady] = useState(false);
   const [backgroundEditorReady, setBackgroundEditorReady] = useState(false);
   const [currentAssociationId, setCurrentAssociationId] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const summaryEditorRef = useRef<LexicalEditorRef>(null);
   const backgroundEditorRef = useRef<LexicalEditorRef>(null);
 
@@ -50,6 +56,7 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       setSummaryEditorReady(false);
       setBackgroundEditorReady(false);
       setCurrentAssociationId(null);
+      setSelectedImage(null);
     }
   }, [visible, associationId]);
 
@@ -64,7 +71,6 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
   useEffect(() => {
     if (association?.short_description && summaryEditorReady && summaryEditorRef.current) {
       const shortDesc = association.short_description;
-      console.log('[AssociationPanel] Setting summary editor content, length:', shortDesc.length);
 
       // Convert plain text to backend format expected by Lexical editor
       summaryEditorRef.current.setContent({
@@ -97,7 +103,6 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
   useEffect(() => {
     if (association?.details?.extended_description && backgroundEditorReady && backgroundEditorRef.current) {
       const extendedDesc = association.details.extended_description;
-      console.log('[AssociationPanel] Setting background editor content, length:', extendedDesc.length);
 
       // Convert plain text to backend format expected by Lexical editor
       backgroundEditorRef.current.setContent({
@@ -127,22 +132,21 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
   }, [association, backgroundEditorReady]);
 
   const handleSummaryEditorReady = () => {
-    console.log('[AssociationPanel] Summary editor is ready');
     setSummaryEditorReady(true);
   };
 
   const handleBackgroundEditorReady = () => {
-    console.log('[AssociationPanel] Background editor is ready');
     setBackgroundEditorReady(true);
   };
 
   const handleAssociationClick = (clickedAssociation: AssociationFromHook) => {
-    console.log('[AssociationPanel] Association clicked, navigating to:', clickedAssociation.association_name);
     // Update the current association ID to load the clicked association
     setCurrentAssociationId(clickedAssociation.association_id);
     // Reset editor ready states so they can be set again when new content loads
     setSummaryEditorReady(false);
     setBackgroundEditorReady(false);
+    // Clear selected image when switching associations
+    setSelectedImage(null);
   };
 
   const loadAssociation = async (idToLoad: string) => {
@@ -157,14 +161,162 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       }
 
       const data: Association = await response.json();
-      console.log('[AssociationPanel] Loaded association:', data.association_name);
-      console.log('[AssociationPanel] Short description:', data.short_description);
       setAssociation(data);
     } catch (error) {
       console.error('Failed to load association:', error);
       setAssociation(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!association || !storyId || !summaryEditorRef.current || !backgroundEditorRef.current) return;
+
+    try {
+      setSaving(true);
+
+      // Get content from both editors
+      const summaryContent = await summaryEditorRef.current.getContent();
+      const backgroundContent = await backgroundEditorRef.current.getContent();
+
+      if (!summaryContent || !summaryContent.blocks || !backgroundContent || !backgroundContent.blocks) {
+        throw new Error('Failed to get editor content');
+      }
+
+      // Convert Lexical blocks to plain text
+      const shortDescription = summaryContent.blocks
+        .map((block: any) => {
+          if (!block.chunk || !block.chunk.children) return '';
+          return block.chunk.children
+            .map((child: any) => child.text || '')
+            .join('');
+        })
+        .join('\n');
+
+      const extendedDescription = backgroundContent.blocks
+        .map((block: any) => {
+          if (!block.chunk || !block.chunk.children) return '';
+          return block.chunk.children
+            .map((child: any) => child.text || '')
+            .join('');
+        })
+        .join('\n');
+
+      // Update association with new descriptions
+      const payload = {
+        ...association,
+        short_description: shortDescription,
+        details: {
+          ...association.details,
+          extended_description: extendedDescription,
+        },
+      };
+
+      // The WriteAssociationsEndpoint expects an array of associations
+      const associationsArray = [payload];
+
+      const response = await apiPut(
+        `/stories/${storyId}/associations`,
+        associationsArray
+      );
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error('Save failed:', response.status, responseText);
+        throw new Error(`Failed to save: ${response.status}`);
+      }
+
+      // Update local state with the new data
+      setAssociation(payload);
+
+      // If a new image was selected, upload it separately using FormData
+      if (selectedImage) {
+        try {
+          const sessionToken = await SecureStore.getItemAsync('session_token');
+
+          // Create FormData
+          const formData = new FormData();
+          formData.append('file', {
+            uri: selectedImage,
+            name: 'portrait.jpg',
+            type: 'image/jpeg',
+          } as any);
+
+          // Use XMLHttpRequest for file upload (PUT with type query parameter)
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', `${getApiBaseUrl()}/stories/${storyId}/associations/${association.association_id}/upload?type=${association.association_type}`);
+
+            // Set headers
+            xhr.setRequestHeader('ngrok-skip-browser-warning', 'true');
+            if (sessionToken) {
+              xhr.setRequestHeader('Authorization', `Bearer ${sessionToken}`);
+            }
+
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                resolve();
+              } else {
+                console.error('Image upload failed:', xhr.status, xhr.responseText);
+                reject(new Error(`Failed to upload image: ${xhr.status}`));
+              }
+            };
+
+            xhr.onerror = () => {
+              reject(new Error('Network request failed'));
+            };
+
+            xhr.send(formData);
+          });
+
+          // Clear selected image after successful upload
+          setSelectedImage(null);
+
+          // Reload association to get updated portrait URL
+          await loadAssociation(association.association_id);
+        } catch (error) {
+          console.error('Failed to upload image:', error);
+          Alert.alert('Warning', 'Association saved but image upload failed. Please try again.');
+          setSaving(false);
+          return;
+        }
+      }
+
+      Alert.alert('Success', 'Association saved successfully');
+    } catch (error) {
+      console.error('Failed to save association:', error);
+      Alert.alert('Error', 'Failed to save association. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePickImage = async () => {
+    try {
+      // Request permission
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please allow access to your photo library to select an image.');
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const imageUri = result.assets[0].uri;
+        setSelectedImage(imageUri);
+      }
+    } catch (error) {
+      console.error('Failed to pick image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
     }
   };
 
@@ -225,6 +377,17 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       letterSpacing: 1,
       marginTop: 2,
     },
+    saveButton: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+      marginRight: 8,
+    },
+    saveButtonText: {
+      color: '#fff',
+      fontWeight: '600',
+      fontSize: 14,
+    },
     closeButton: {
       padding: 8,
     },
@@ -248,7 +411,7 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       marginBottom: 16,
     },
     typeBadgeText: {
-      color: colors.textPrimary,
+      color: colors.bgPrimary, // Use background color as text (white in light mode, dark in dark mode)
       fontSize: 12,
       fontWeight: 'bold',
       textTransform: 'uppercase',
@@ -256,11 +419,27 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
     portraitContainer: {
       alignItems: 'center',
       marginBottom: 16,
+      position: 'relative',
     },
     portrait: {
       width: 150,
       height: 150,
       borderRadius: 12,
+    },
+    imageOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      width: 150,
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      paddingVertical: 8,
+      borderBottomLeftRadius: 12,
+      borderBottomRightRadius: 12,
+      alignItems: 'center',
+    },
+    imageOverlayText: {
+      color: '#fff',
+      fontSize: 12,
+      fontWeight: '600',
     },
     name: {
       fontSize: 24,
@@ -333,6 +512,17 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
                 <Text style={styles.headerTitle}>Association</Text>
               )}
             </View>
+            <TouchableOpacity
+              onPress={handleSave}
+              style={[styles.saveButton, { backgroundColor: colors.primary }]}
+              disabled={saving || !association}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.saveButtonText}>Save</Text>
+              )}
+            </TouchableOpacity>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
@@ -359,14 +549,20 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
                 </View>
 
                 {/* Portrait */}
-                {association.portrait && (
-                  <View style={styles.portraitContainer}>
+                {(association.portrait || selectedImage) && (
+                  <TouchableOpacity onPress={handlePickImage} style={styles.portraitContainer}>
                     <Image
-                      source={{ uri: association.portrait }}
+                      source={{
+                        uri: selectedImage || `${association.portrait}?t=${Date.now()}`,
+                        cache: 'reload'
+                      }}
                       style={styles.portrait}
                       resizeMode="cover"
                     />
-                  </View>
+                    <View style={styles.imageOverlay}>
+                      <Text style={styles.imageOverlayText}>Tap to change</Text>
+                    </View>
+                  </TouchableOpacity>
                 )}
 
                 {/* Short Description */}
@@ -377,7 +573,7 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
                       ref={summaryEditorRef}
                       backgroundColor={colors.bgPrimary}
                       textColor={colors.textPrimary}
-                      readOnly={true}
+                      readOnly={false}
                       associations={associations}
                       onReady={handleSummaryEditorReady}
                       onAssociationClick={handleAssociationClick}
@@ -394,7 +590,7 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
                         ref={backgroundEditorRef}
                         backgroundColor={colors.bgPrimary}
                         textColor={colors.textPrimary}
-                        readOnly={true}
+                        readOnly={false}
                         associations={associations}
                         onReady={handleBackgroundEditorReady}
                         onAssociationClick={handleAssociationClick}

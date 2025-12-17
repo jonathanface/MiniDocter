@@ -1,9 +1,10 @@
 import * as SecureStore from 'expo-secure-store';
+import { API_BASE_URL } from '../config/environment';
 
 const SESSION_TOKEN_KEY = 'session_token';
 
 export const getApiBaseUrl = () => {
-  return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.74:8443';
+  return API_BASE_URL;
 };
 
 /**

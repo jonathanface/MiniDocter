@@ -6,6 +6,8 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "description": "Write and organize your stories with ease",
+    "primaryColor": "#007AFF",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -13,16 +15,27 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.MiniDocter",
-      "userInterfaceStyle": "light"
+      "bundleIdentifier": "io.docter.mobile",
+      "userInterfaceStyle": "automatic",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to upload profile pictures and story images.",
+        "NSCameraUsageDescription": "This app needs access to your camera to take photos for your stories."
+      }
     },
     "android": {
-      "userInterfaceStyle": "light",
+      "userInterfaceStyle": "automatic",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.MiniDocter",
+      "package": "io.docter.mobile",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",

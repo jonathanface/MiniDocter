@@ -29,6 +29,17 @@ jest.mock('../../contexts/ThemeContext', () => ({
   }),
 }));
 
+jest.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: null,
+    isLoading: false,
+    signIn: jest.fn(),
+    signOut: jest.fn(),
+    getSessionToken: jest.fn(() => Promise.resolve('mock-token')),
+    setUser: jest.fn(),
+  }),
+}));
+
 jest.mock('../../utils/api', () => ({
   getBillingSummary: jest.fn(),
   createPortalSession: jest.fn(),
