@@ -647,6 +647,27 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
             editor.setEditable(!readOnly);
             break;
           }
+
+          case 'deleteSelection': {
+            editor.update(() => {
+              const selection = $getSelection();
+              if ($isRangeSelection(selection) && !selection.isCollapsed()) {
+                selection.removeText();
+              }
+            });
+            break;
+          }
+
+          case 'insertText': {
+            const text = data.payload;
+            editor.update(() => {
+              const selection = $getSelection();
+              if ($isRangeSelection(selection)) {
+                selection.insertText(text);
+              }
+            });
+            break;
+          }
         }
       } catch (error) {
         console.error('Failed to handle message:', error);
@@ -899,15 +920,74 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
       }
     }, 100);
 
+    // Handle text selection for custom context menu
+    let selectionTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const handleSelectionChange = () => {
+      // Debounce selection changes to avoid too many messages
+      if (selectionTimeout) {
+        clearTimeout(selectionTimeout);
+      }
+
+      selectionTimeout = setTimeout(() => {
+        const selection = window.getSelection();
+        if (selection && selection.toString().trim().length > 0) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          const selectedText = selection.toString();
+
+          // Blur the editor to dismiss mobile keyboard
+          const contentEditableElement = document.querySelector('.editor-input') as HTMLElement;
+          if (contentEditableElement) {
+            contentEditableElement.blur();
+          }
+
+          sendMessage('textSelected', {
+            text: selectedText,
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+          });
+        } else {
+          // Selection cleared
+          sendMessage('selectionCleared');
+        }
+      }, 100);
+    };
+
+    // Prevent default context menu (long-press menu on mobile)
+    const preventContextMenu = (e: Event) => {
+      const selection = window.getSelection();
+      if (selection && selection.toString().trim().length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    // Add selection change listener
+    document.addEventListener('selectionchange', handleSelectionChange);
+
+    // Prevent context menu on long-press
+    const editableElement = document.querySelector('.editor-input');
+    if (editableElement) {
+      editableElement.addEventListener('contextmenu', preventContextMenu);
+    }
+
     // Notify React Native that editor is ready
     sendMessage('ready', {});
 
     return () => {
       window.removeEventListener('message', handleMessage);
       document.removeEventListener('message', handleMessage as unknown as EventListener);
-      const contentEditableElement = document.querySelector('.editor-input');
-      if (contentEditableElement) {
-        contentEditableElement.removeEventListener('click', handleAssociationClick, true); // true = capture phase
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      if (selectionTimeout) {
+        clearTimeout(selectionTimeout);
+      }
+      const editableEl = document.querySelector('.editor-input');
+      if (editableEl) {
+        editableEl.removeEventListener('click', handleAssociationClick, true); // true = capture phase
+        editableEl.removeEventListener('contextmenu', preventContextMenu);
       }
       removeEnterCommand();
     };
@@ -966,15 +1046,8 @@ function App() {
             selection.anchor.set(paragraph.getKey(), 0, 'element');
             selection.focus.set(paragraph.getKey(), 0, 'element');
             $setSelection(selection);
-          } else {
-            const firstChild = root.getFirstChild();
-            if (firstChild) {
-              const selection = $createRangeSelection();
-              selection.anchor.set(firstChild.getKey(), 0, 'element');
-              selection.focus.set(firstChild.getKey(), 0, 'element');
-              $setSelection(selection);
-            }
           }
+          // Don't set selection if editor has content - let the natural click event position the cursor
         });
       }
     }

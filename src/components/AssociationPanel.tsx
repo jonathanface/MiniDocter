@@ -69,8 +69,8 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
 
   // Update summary editor content when both association and editor are ready
   useEffect(() => {
-    if (association?.short_description && summaryEditorReady && summaryEditorRef.current) {
-      const shortDesc = association.short_description;
+    if (association && summaryEditorReady && summaryEditorRef.current) {
+      const shortDesc = association.short_description || '';
 
       // Convert plain text to backend format expected by Lexical editor
       summaryEditorRef.current.setContent({
@@ -101,8 +101,8 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
 
   // Update background editor content when both association and editor are ready
   useEffect(() => {
-    if (association?.details?.extended_description && backgroundEditorReady && backgroundEditorRef.current) {
-      const extendedDesc = association.details.extended_description;
+    if (association && backgroundEditorReady && backgroundEditorRef.current) {
+      const extendedDesc = association.details?.extended_description || '';
 
       // Convert plain text to backend format expected by Lexical editor
       backgroundEditorRef.current.setContent({
@@ -582,22 +582,20 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
                 </View>
 
                 {/* Extended Description */}
-                {association.details?.extended_description && (
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Background</Text>
-                    <View style={styles.editorContainerLarge}>
-                      <LexicalEditor
-                        ref={backgroundEditorRef}
-                        backgroundColor={colors.bgPrimary}
-                        textColor={colors.textPrimary}
-                        readOnly={false}
-                        associations={associations}
-                        onReady={handleBackgroundEditorReady}
-                        onAssociationClick={handleAssociationClick}
-                      />
-                    </View>
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Background</Text>
+                  <View style={styles.editorContainerLarge}>
+                    <LexicalEditor
+                      ref={backgroundEditorRef}
+                      backgroundColor={colors.bgPrimary}
+                      textColor={colors.textPrimary}
+                      readOnly={false}
+                      associations={associations}
+                      onReady={handleBackgroundEditorReady}
+                      onAssociationClick={handleAssociationClick}
+                    />
                   </View>
-                )}
+                </View>
 
                 {/* Aliases */}
                 {association.aliases && (

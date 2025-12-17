@@ -4,12 +4,22 @@ import { StyleSheet } from 'react-native';
 import { LEXICAL_HTML } from './lexicalHtml';
 import { Association } from '../hooks/useAssociations';
 
+export interface SelectionInfo {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface LexicalEditorProps {
   onContentChange?: (content: any) => void;
   onSave?: (content: any) => void;
   onAssociationClick?: (association: Association) => void;
   onFormatChange?: (formatState: any) => void;
   onReady?: () => void;
+  onTextSelected?: (selection: SelectionInfo) => void;
+  onSelectionCleared?: () => void;
   backgroundColor?: string;
   textColor?: string;
   associations?: Association[];
@@ -25,10 +35,12 @@ export interface LexicalEditorRef {
   focus: () => void;
   applyFormat: (format: 'bold' | 'italic' | 'underline' | 'strikethrough') => void;
   applyAlignment: (alignment: 'left' | 'center' | 'right' | 'justify') => void;
+  deleteSelection: () => void;
+  insertText: (text: string) => void;
 }
 
 export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
-  ({ onContentChange, onSave, onAssociationClick, onFormatChange, onReady, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
+  ({ onContentChange, onSave, onAssociationClick, onFormatChange, onReady, onTextSelected, onSelectionCleared, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const editorReadyRef = useRef(false);
     const pendingContentRef = useRef<any>(null);
@@ -73,6 +85,16 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
       applyAlignment: (alignment: 'left' | 'center' | 'right' | 'justify') => {
         webViewRef.current?.postMessage(
           JSON.stringify({ type: 'applyAlignment', payload: alignment })
+        );
+      },
+      deleteSelection: () => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({ type: 'deleteSelection' })
+        );
+      },
+      insertText: (text: string) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({ type: 'insertText', payload: text })
         );
       },
     }));
@@ -182,6 +204,12 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             break;
           case 'requestFocus':
             webViewRef.current?.requestFocus?.();
+            break;
+          case 'textSelected':
+            onTextSelected?.(data.payload);
+            break;
+          case 'selectionCleared':
+            onSelectionCleared?.();
             break;
           case 'error':
             console.error('[Lexical] Error:', data.payload);
