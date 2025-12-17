@@ -11,17 +11,21 @@ import {
   Platform,
   Modal,
   Linking,
+  Keyboard,
+  Dimensions,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { apiGet, apiPut } from '../utils/api';
+import { apiGet, apiPut, apiPost } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAssociations } from '../hooks/useAssociations';
 import { useDocumentSettings } from '../hooks/useDocumentSettings';
 import { AssociationPanel } from '../components/AssociationPanel';
-import { LexicalEditor, LexicalEditorRef } from '../components/LexicalEditor';
+import { LexicalEditor, LexicalEditorRef, SelectionInfo } from '../components/LexicalEditor';
 
 interface Chapter {
   id: string;
@@ -61,8 +65,16 @@ export const StoryEditorScreen = () => {
   const [isStrikethrough, setIsStrikethrough] = useState(false);
   const [alignment, setAlignment] = useState<'left' | 'center' | 'right' | 'justify'>('left');
 
+  // Text selection state
+  const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
+  const [selectedText, setSelectedText] = useState('');
+  const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
+  const [associationSubmenuVisible, setAssociationSubmenuVisible] = useState(false);
+  const [chapterPickerVisible, setChapterPickerVisible] = useState(false);
+  const editorContainerRef = useRef<View>(null);
+
   // Fetch associations for coloring text
-  const { associations } = useAssociations(storyId);
+  const { associations, refreshAssociations } = useAssociations(storyId);
 
   // Fetch document settings
   const { settings } = useDocumentSettings(storyId);
@@ -88,12 +100,82 @@ export const StoryEditorScreen = () => {
     }
   }, [currentChapterId]);
 
-  // Auto-select first chapter
+  // Auto-select chapter (last selected or first chapter)
   useEffect(() => {
-    if (story && story.chapters.length > 0 && !currentChapterId) {
-      setCurrentChapterId(story.chapters[0].id);
+    const loadLastSelectedChapter = async () => {
+      if (story && story.chapters.length > 0 && !currentChapterId && storyId) {
+        try {
+          // Try to get the last selected chapter for this story
+          const lastChapterId = await AsyncStorage.getItem(`lastChapter_${storyId}`);
+
+          // Check if the stored chapter still exists in the story
+          if (lastChapterId && story.chapters.some(ch => ch.id === lastChapterId)) {
+            setCurrentChapterId(lastChapterId);
+          } else {
+            // Default to first chapter if no stored chapter or it doesn't exist
+            setCurrentChapterId(story.chapters[0].id);
+          }
+        } catch (error) {
+          console.error('Failed to load last selected chapter:', error);
+          // Fallback to first chapter on error
+          setCurrentChapterId(story.chapters[0].id);
+        }
+      }
+    };
+
+    loadLastSelectedChapter();
+  }, [story, storyId]);
+
+  // Save the current chapter selection to AsyncStorage
+  useEffect(() => {
+    const saveLastSelectedChapter = async () => {
+      if (currentChapterId && storyId) {
+        try {
+          await AsyncStorage.setItem(`lastChapter_${storyId}`, currentChapterId);
+        } catch (error) {
+          console.error('Failed to save last selected chapter:', error);
+        }
+      }
+    };
+
+    saveLastSelectedChapter();
+  }, [currentChapterId, storyId]);
+
+  const createAssociation = async (type: 'character' | 'place' | 'event' | 'item') => {
+    if (!storyId || !selectedText.trim()) return;
+
+    try {
+      // API expects an array of associations
+      const associationData = [{
+        association_name: selectedText.trim(),
+        association_type: type,
+        short_description: '',
+        portrait: '',
+        details: {
+          extended_description: '',
+        },
+        case_sensitive: false,
+        aliases: '',
+      }];
+
+      // Use apiPost helper which handles authentication and base URL
+      const response = await apiPost(`/stories/${storyId}/associations`, associationData);
+
+      if (response.ok) {
+        Alert.alert('Success', `Created ${type}: ${selectedText}`);
+        // Refresh associations list to show the new association
+        refreshAssociations();
+      } else if (response.status === 402) {
+        Alert.alert('Subscription Required', 'You have reached the maximum number of associations. Please subscribe to create more.');
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        Alert.alert('Error', errorData.message || 'Failed to create association');
+      }
+    } catch (error) {
+      console.error('Error creating association:', error);
+      Alert.alert('Error', 'Failed to create association');
     }
-  }, [story]);
+  };
 
   const loadStory = async () => {
     try {
@@ -339,34 +421,20 @@ export const StoryEditorScreen = () => {
         </View>
       </View>
 
-      {/* Chapter Selector */}
+      {/* Chapter Selector - Dropdown Button */}
       {story.chapters.length > 0 && (
-        <View style={[styles.chapterSelector, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}>
-          <Text style={[styles.chapterLabel, { color: colors.textSecondary }]}>Chapter:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {story.chapters.map((chapter) => (
-              <TouchableOpacity
-                key={chapter.id}
-                onPress={() => setCurrentChapterId(chapter.id)}
-                style={[
-                  styles.chapterTab,
-                  { backgroundColor: colors.bgCard, borderColor: colors.borderMedium },
-                  currentChapterId === chapter.id && { backgroundColor: colors.primary, borderColor: colors.primary },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.chapterTabText,
-                    { color: colors.textSecondary },
-                    currentChapterId === chapter.id && { color: '#fff', fontWeight: '600' },
-                  ]}
-                >
-                  {chapter.title}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+        <TouchableOpacity
+          style={[styles.chapterSelector, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}
+          onPress={() => setChapterPickerVisible(true)}
+        >
+          <Text style={[styles.chapterLabel, { color: colors.textSecondary }]}>Viewing:</Text>
+          <View style={styles.chapterDropdown}>
+            <Text style={[styles.chapterDropdownText, { color: colors.textPrimary }]} numberOfLines={1}>
+              {story.chapters.find(ch => ch.id === currentChapterId)?.title || 'Select Chapter'}
+            </Text>
+            <MaterialIcons name="arrow-drop-down" size={24} color={colors.textSecondary} />
+          </View>
+        </TouchableOpacity>
       )}
 
       {/* Formatting Toolbar */}
@@ -451,7 +519,7 @@ export const StoryEditorScreen = () => {
       </View>
 
       {/* Editor */}
-      <View style={styles.editorContainer}>
+      <View style={styles.editorContainer} ref={editorContainerRef}>
         <LexicalEditor
           ref={editorRef}
           backgroundColor={colors.bgEditor}
@@ -472,6 +540,30 @@ export const StoryEditorScreen = () => {
             setIsUnderline(formatState.isUnderline);
             setIsStrikethrough(formatState.isStrikethrough);
             setAlignment(formatState.alignment || 'left');
+          }}
+          onTextSelected={(selection) => {
+            setSelectedText(selection.text);
+
+            // Dismiss keyboard when context menu opens
+            Keyboard.dismiss();
+
+            // Measure the editor container position to get the correct screen coordinates
+            editorContainerRef.current?.measureInWindow((x, y, width, height) => {
+              // Store full selection info with absolute coordinates
+              setSelectionInfo({
+                text: selection.text,
+                x: x + selection.x,
+                y: y + selection.y,
+                width: selection.width,
+                height: selection.height,
+              });
+              setSelectionMenuVisible(true);
+              setAssociationSubmenuVisible(false); // Reset submenu when new selection
+            });
+          }}
+          onSelectionCleared={() => {
+            setSelectionMenuVisible(false);
+            setAssociationSubmenuVisible(false);
           }}
         />
 
@@ -596,6 +688,210 @@ export const StoryEditorScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Chapter Picker Modal */}
+      <Modal
+        visible={chapterPickerVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setChapterPickerVisible(false)}
+      >
+        <View style={styles.bottomSheetOverlay}>
+          <View style={[styles.chapterPickerModal, { backgroundColor: colors.bgModal }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.borderLight }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Chapter</Text>
+              <TouchableOpacity onPress={() => setChapterPickerVisible(false)}>
+                <MaterialIcons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.chapterList}>
+              {story.chapters.map((chapter, index) => (
+                <TouchableOpacity
+                  key={chapter.id}
+                  style={[
+                    styles.chapterListItem,
+                    { borderBottomColor: colors.borderLight },
+                    currentChapterId === chapter.id && { backgroundColor: colors.bgSecondary },
+                  ]}
+                  onPress={() => {
+                    setCurrentChapterId(chapter.id);
+                    setChapterPickerVisible(false);
+                  }}
+                >
+                  <View style={styles.chapterListItemContent}>
+                    <Text
+                      style={[
+                        styles.chapterListItemText,
+                        { color: colors.textPrimary },
+                        currentChapterId === chapter.id && { fontWeight: '600' },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {chapter.title}
+                    </Text>
+                  </View>
+                  {currentChapterId === chapter.id && (
+                    <MaterialIcons name="check" size={24} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Text Selection Context Menu */}
+      {selectionMenuVisible && selectionInfo && (() => {
+        const screenWidth = Dimensions.get('window').width;
+        const screenHeight = Dimensions.get('window').height;
+        const menuWidth = 200; // minWidth from styles
+        const menuHeight = associationSubmenuVisible ? 340 : 230; // Approximate height with/without submenu
+        const padding = 10;
+
+        // Calculate horizontal position (center on selection, but keep within bounds)
+        let leftPosition = selectionInfo.x - (menuWidth / 2);
+        leftPosition = Math.max(padding, Math.min(leftPosition, screenWidth - menuWidth - padding));
+
+        // Calculate vertical position (above selection, but keep within bounds)
+        let topPosition = selectionInfo.y - menuHeight - padding;
+        // If menu would go off top of screen, show it below the selection instead
+        if (topPosition < padding) {
+          topPosition = selectionInfo.y + selectionInfo.height + padding;
+        }
+        // Ensure it doesn't go off bottom
+        topPosition = Math.min(topPosition, screenHeight - menuHeight - padding);
+
+        return (
+          <View
+            style={[
+              styles.selectionMenu,
+              {
+                backgroundColor: colors.bgModal,
+                borderColor: colors.borderMedium,
+                top: topPosition,
+                left: leftPosition,
+              },
+            ]}
+          >
+
+          {/* Selected Text Header - Non-clickable */}
+          <View style={[styles.selectionHeader, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}>
+            <Text style={[styles.selectionHeaderText, { color: colors.textSecondary }]} numberOfLines={2} ellipsizeMode="tail">
+              "{selectedText}"
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.selectionMenuItem, { borderBottomColor: colors.borderLight }]}
+            onPress={async () => {
+              // Cut - copy to clipboard and delete from editor
+              await Clipboard.setStringAsync(selectedText);
+              editorRef.current?.deleteSelection();
+              setSelectionMenuVisible(false);
+            }}
+          >
+            <MaterialIcons name="content-cut" size={20} color={colors.textPrimary} />
+            <Text style={[styles.selectionMenuItemText, { color: colors.textPrimary }]}>Cut</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.selectionMenuItem, { borderBottomColor: colors.borderLight }]}
+            onPress={async () => {
+              // Copy to clipboard
+              await Clipboard.setStringAsync(selectedText);
+              setSelectionMenuVisible(false);
+            }}
+          >
+            <MaterialIcons name="content-copy" size={20} color={colors.textPrimary} />
+            <Text style={[styles.selectionMenuItemText, { color: colors.textPrimary }]}>Copy</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.selectionMenuItem, { borderBottomColor: colors.borderLight }]}
+            onPress={async () => {
+              // Paste from clipboard
+              const clipboardText = await Clipboard.getStringAsync();
+              if (clipboardText) {
+                editorRef.current?.insertText(clipboardText);
+                setSelectionMenuVisible(false);
+              }
+            }}
+          >
+            <MaterialIcons name="content-paste" size={20} color={colors.textPrimary} />
+            <Text style={[styles.selectionMenuItemText, { color: colors.textPrimary}]}>Paste</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.selectionMenuItem}
+            onPress={() => {
+              setAssociationSubmenuVisible(!associationSubmenuVisible);
+            }}
+          >
+            <MaterialIcons name="bookmark-add" size={20} color={colors.textPrimary} />
+            <Text style={[styles.selectionMenuItemText, { color: colors.textPrimary }]}>Create Association</Text>
+            <MaterialIcons
+              name={associationSubmenuVisible ? "expand-less" : "expand-more"}
+              size={20}
+              color={colors.textSecondary}
+              style={{ marginLeft: 'auto' }}
+            />
+          </TouchableOpacity>
+
+          {/* Association Type Submenu */}
+          {associationSubmenuVisible && (
+            <View style={[styles.submenu, { backgroundColor: colors.bgSecondary }]}>
+              <TouchableOpacity
+                style={[styles.submenuItem, { borderBottomColor: colors.borderLight }]}
+                onPress={async () => {
+                  await createAssociation('character');
+                  setSelectionMenuVisible(false);
+                  setAssociationSubmenuVisible(false);
+                }}
+              >
+                <MaterialIcons name="person" size={18} color={colors.textPrimary} />
+                <Text style={[styles.submenuItemText, { color: colors.textPrimary }]}>Character</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.submenuItem, { borderBottomColor: colors.borderLight }]}
+                onPress={async () => {
+                  await createAssociation('place');
+                  setSelectionMenuVisible(false);
+                  setAssociationSubmenuVisible(false);
+                }}
+              >
+                <MaterialIcons name="place" size={18} color={colors.textPrimary} />
+                <Text style={[styles.submenuItemText, { color: colors.textPrimary }]}>Place</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.submenuItem, { borderBottomColor: colors.borderLight }]}
+                onPress={async () => {
+                  await createAssociation('event');
+                  setSelectionMenuVisible(false);
+                  setAssociationSubmenuVisible(false);
+                }}
+              >
+                <MaterialIcons name="event" size={18} color={colors.textPrimary} />
+                <Text style={[styles.submenuItemText, { color: colors.textPrimary }]}>Event</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.submenuItem}
+                onPress={async () => {
+                  await createAssociation('item');
+                  setSelectionMenuVisible(false);
+                  setAssociationSubmenuVisible(false);
+                }}
+              >
+                <MaterialIcons name="category" size={18} color={colors.textPrimary} />
+                <Text style={[styles.submenuItemText, { color: colors.textPrimary }]}>Item</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          </View>
+        );
+      })()}
     </SafeAreaView>
   );
 };
@@ -654,24 +950,57 @@ const styles = StyleSheet.create({
   chapterSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    justifyContent: 'space-between',
+    paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
   },
   chapterLabel: {
     fontSize: 14,
     fontWeight: '600',
-    marginRight: 8,
+    marginRight: 12,
   },
-  chapterTab: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-    borderRadius: 6,
-    borderWidth: 1,
+  chapterDropdown: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  chapterTabText: {
-    fontSize: 14,
+  chapterDropdownText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  chapterPickerModal: {
+    width: '100%',
+    maxHeight: '80%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+  },
+  chapterList: {
+    maxHeight: 500,
+  },
+  chapterListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+  },
+  chapterListItemContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  chapterNumber: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  chapterListItemText: {
+    fontSize: 16,
   },
   formattingToolbar: {
     borderBottomWidth: 1,
@@ -787,6 +1116,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  bottomSheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
   exportModal: {
     width: '80%',
     maxWidth: 400,
@@ -830,5 +1176,55 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: {
     fontSize: 16,
+  },
+  selectionMenu: {
+    position: 'absolute',
+    borderRadius: 8,
+    minWidth: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 10,
+    zIndex: 9999,
+    overflow: 'hidden',
+    borderWidth: 1,
+  },
+  selectionHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+  },
+  selectionHeaderText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  selectionMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderBottomWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  selectionMenuItemText: {
+    fontSize: 16,
+  },
+  submenu: {
+    paddingLeft: 8,
+    marginTop: 4,
+  },
+  submenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    gap: 12,
+    borderBottomWidth: 1,
+  },
+  submenuItemText: {
+    fontSize: 15,
   },
 });
