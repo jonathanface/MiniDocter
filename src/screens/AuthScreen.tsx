@@ -97,9 +97,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: 250,
-    height: 100,
-    marginBottom: 8,
+    width: 300,
+    height: 300,
+    marginBottom: -20,
+    marginTop: 40,
   },
   title: {
     fontSize: 28,
