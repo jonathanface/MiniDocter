@@ -490,7 +490,7 @@ describe('AssociationPanel', () => {
       });
     });
 
-    it('should only render background editor when extended_description exists', async () => {
+    it('should always render background editor even when extended_description is empty', async () => {
       const noExtendedDesc = {
         ...mockAssociation,
         details: undefined,
@@ -505,8 +505,8 @@ describe('AssociationPanel', () => {
 
       await waitFor(() => {
         const editors = getAllByTestId('lexical-editor-mock');
-        // Should only have 1 editor: summary
-        expect(editors.length).toBe(1);
+        // Should have 2 editors: summary and background (always rendered)
+        expect(editors.length).toBe(2);
       });
     });
   });

@@ -40,6 +40,14 @@ jest.mock('expo-linking', () => ({
   createURL: jest.fn(),
 }));
 
+// Mock expo-clipboard
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(),
+  getStringAsync: jest.fn(),
+  setString: jest.fn(),
+  getString: jest.fn(),
+}));
+
 // Mock @expo/vector-icons
 jest.mock('@expo/vector-icons', () => ({
   MaterialIcons: 'MaterialIcons',
