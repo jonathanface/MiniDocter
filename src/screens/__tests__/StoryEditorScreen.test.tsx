@@ -227,12 +227,21 @@ describe('StoryEditorScreen', () => {
       });
     });
 
-    it('should display all chapters', async () => {
+    it('should display chapter selector with current chapter', async () => {
       const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
+      // Wait for the component to load
+      await waitFor(() => {
+        expect(getByText('Viewing:')).toBeTruthy();
+      });
+
+      // Verify the chapter selector is present
+      const chapterSelector = getByTestId('chapter-selector-button');
+      expect(chapterSelector).toBeTruthy();
+
+      // Verify the currently selected chapter is displayed (Chapter 1 is auto-selected)
       await waitFor(() => {
         expect(getByText('Chapter 1')).toBeTruthy();
-        expect(getByText('Chapter 2')).toBeTruthy();
       });
     });
 
@@ -302,12 +311,24 @@ describe('StoryEditorScreen', () => {
     it('should load content when chapter is selected', async () => {
       const { getByTestId, getByText } = render(<StoryEditorScreen />);
 
+      // Wait for the component to load
+      await waitFor(() => {
+        expect(getByText('Viewing:')).toBeTruthy();
+      });
+
+      // Open the chapter picker modal
+      const chapterSelector = getByTestId('chapter-selector-button');
+      fireEvent.press(chapterSelector);
+
+      // Wait for modal to show chapters
       await waitFor(() => {
         expect(getByText('Chapter 2')).toBeTruthy();
       });
 
+      // Select Chapter 2
       fireEvent.press(getByText('Chapter 2'));
 
+      // Verify the content was loaded for chapter 2
       await waitFor(() => {
         expect(mockApiGet).toHaveBeenCalledWith(
           '/stories/test-story-id/content?chapter=chapter-2'

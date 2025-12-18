@@ -424,6 +424,7 @@ export const StoryEditorScreen = () => {
       {/* Chapter Selector - Dropdown Button */}
       {story.chapters.length > 0 && (
         <TouchableOpacity
+          testID="chapter-selector-button"
           style={[styles.chapterSelector, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}
           onPress={() => setChapterPickerVisible(true)}
         >
