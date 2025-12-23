@@ -44,6 +44,8 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
   const associationMapRef = useRef<Map<string, Association>>(new Map()); // Map text content to association for click handling
   const autotabRef = useRef(false); // Store autotab setting
   const spellCheckRef = useRef(true); // Store spellcheck setting
+  const previousTextContentRef = useRef(''); // Track previous text content to detect real changes
+  const isInitialLoadRef = useRef(true); // Track if this is the initial content load
 
   useEffect(() => {
     // Helper to send messages to React Native
@@ -191,8 +193,20 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
       });
       isLoadingRef.current = false;
 
-      // Highlight associations after content is loaded
-      setTimeout(() => highlightAssociations(), 100);
+      // Highlight associations after content is loaded, then update baseline
+      setTimeout(() => {
+        highlightAssociations();
+
+        // Update the baseline text content after highlighting completes
+        // Wait a bit longer to ensure highlighting and its cleanup are done
+        setTimeout(() => {
+          editor.getEditorState().read(() => {
+            previousTextContentRef.current = $getRoot().getTextContent();
+          });
+          // Mark initial load as complete - contentChanged can now fire
+          isInitialLoadRef.current = false;
+        }, 250);
+      }, 100);
     }
 
     // Export content to backend format
@@ -539,6 +553,7 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
 
         switch (data.type) {
           case 'setContent':
+            isInitialLoadRef.current = true; // Mark as initial load to suppress contentChanged
             loadContentFromBackend(data.payload);
             break;
 
@@ -580,6 +595,13 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
             associationsRef.current = data.payload || [];
             // Highlight associations after setting them
             highlightAssociations();
+
+            // Update baseline after highlighting associations (with delay for highlighting to complete)
+            setTimeout(() => {
+              editor.getEditorState().read(() => {
+                previousTextContentRef.current = $getRoot().getTextContent();
+              });
+            }, 250);
             break;
 
           case 'setAutotab':
@@ -710,6 +732,9 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
           const association = associationMapRef.current.get(text.toLowerCase());
 
           if (association) {
+            // Get position of the association element for tooltip placement
+            const rect = textElement.getBoundingClientRect();
+
             // Immediately stop the event from propagating
             event.preventDefault();
             event.stopPropagation();
@@ -721,7 +746,13 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
               contentEditableElement.blur();
             }
 
-            sendMessage('associationClicked', association);
+            sendMessage('associationClicked', {
+              association,
+              position: {
+                x: rect.left + rect.width / 2,
+                y: rect.top
+              }
+            });
             return;
           }
         }
@@ -731,10 +762,118 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
       }
     }
 
+    // Handle touch on associations
+    let longPressStartX = 0;
+    let longPressStartY = 0;
+    let isLongPressingAssociation = false;
+    let touchedAssociation: Association | null = null;
+    let touchedAssociationElement: HTMLElement | null = null;
+    const moveThreshold = 10; // pixels
+
+    function handleTouchStart(event: Event) {
+      const touchEvent = event as TouchEvent;
+      if (touchEvent.touches.length !== 1) return;
+
+      const touch = touchEvent.touches[0];
+      const target = touch.target as HTMLElement;
+
+      longPressStartX = touch.clientX;
+      longPressStartY = touch.clientY;
+
+      // Check if touching an association
+      let textElement: HTMLElement | null = target;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (textElement && attempts < maxAttempts) {
+        const computedStyle = window.getComputedStyle(textElement);
+        const color = computedStyle.color;
+
+        const hasAssociationColor = Object.values(ASSOCIATION_COLORS).some(assocColor => {
+          const hexToRgb = (hex: string): string => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgb(${r}, ${g}, ${b})`;
+          };
+          return color === hexToRgb(assocColor);
+        });
+
+        if (hasAssociationColor && textElement.textContent) {
+          const text = textElement.textContent.trim();
+          const association = associationMapRef.current.get(text.toLowerCase());
+
+          if (association) {
+            // Prevent default immediately to stop keyboard from appearing
+            event.preventDefault();
+            event.stopPropagation();
+
+            // Blur the editor immediately to prevent keyboard
+            const contentEditable = document.querySelector('.editor-input') as HTMLElement;
+            if (contentEditable) {
+              contentEditable.blur();
+            }
+
+            // Store the association and element for potential click
+            touchedAssociation = association;
+            touchedAssociationElement = textElement;
+
+            // No longer using long press - will trigger on touchend instead
+            break;
+          }
+        }
+
+        textElement = textElement.parentElement;
+        attempts++;
+      }
+    }
+
+    function handleTouchMove(event: Event) {
+      const touchEvent = event as TouchEvent;
+      if (!touchedAssociation || touchEvent.touches.length !== 1) return;
+
+      const touch = touchEvent.touches[0];
+      const deltaX = Math.abs(touch.clientX - longPressStartX);
+      const deltaY = Math.abs(touch.clientY - longPressStartY);
+
+      // Cancel tap if finger moved too much
+      if (deltaX > moveThreshold || deltaY > moveThreshold) {
+        touchedAssociation = null;
+        touchedAssociationElement = null;
+      }
+    }
+
+    function handleTouchEnd() {
+      // If we have a touched association and haven't moved too much, trigger the click
+      if (touchedAssociation && touchedAssociationElement) {
+        const rect = touchedAssociationElement.getBoundingClientRect();
+        sendMessage('associationClicked', {
+          association: touchedAssociation,
+          position: {
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+          },
+        });
+      }
+
+      // Clear the touched association
+      touchedAssociation = null;
+      touchedAssociationElement = null;
+
+      // Reset flag after a brief delay
+      setTimeout(() => {
+        isLongPressingAssociation = false;
+      }, 150);
+    }
+
     // Add click listener to the editor (using capture phase to intercept before editor handles it)
     const contentEditableElement = document.querySelector('.editor-input');
     if (contentEditableElement) {
       contentEditableElement.addEventListener('click', handleAssociationClick, true); // true = capture phase
+      contentEditableElement.addEventListener('touchstart', handleTouchStart, true);
+      contentEditableElement.addEventListener('touchmove', handleTouchMove, true);
+      contentEditableElement.addEventListener('touchend', handleTouchEnd, true);
+      contentEditableElement.addEventListener('touchcancel', handleTouchEnd, true);
 
       // Handler to ensure editor is focusable and has content
       const ensureEditorFocusable = () => {
@@ -770,13 +909,34 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
 
     // Listen for content changes and re-highlight associations (debounced)
     let highlightTimeout: ReturnType<typeof setTimeout> | undefined;
-    editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
+
+    // Initialize previous content
+    editor.getEditorState().read(() => {
+      previousTextContentRef.current = $getRoot().getTextContent();
+    });
+
+    editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, editorState }) => {
       if (isLoadingRef.current) return; // Don't highlight while loading content
       if (isHighlightingRef.current) return; // Don't highlight while already highlighting
+      if (isInitialLoadRef.current) return; // Don't send contentChanged during initial load
 
       // Only re-highlight if actual content changed, not just selection/cursor
       const hasContentChanges = dirtyElements.size > 0 || dirtyLeaves.size > 0;
       if (!hasContentChanges) return;
+
+      // Check if actual text content changed (not just selection/formatting)
+      const currentTextContent = editorState.read(() => {
+        return $getRoot().getTextContent();
+      });
+
+      if (currentTextContent !== previousTextContentRef.current) {
+        previousTextContentRef.current = currentTextContent;
+        // Notify parent component that content has actually changed
+        sendMessage('contentChanged');
+      } else {
+        // Content didn't actually change (just selection/formatting), skip
+        return;
+      }
 
       // Find which paragraphs were modified
       const modifiedParagraphs = new Set<string>();
@@ -924,6 +1084,11 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
     let selectionTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const handleSelectionChange = () => {
+      // Don't send text selection events if we're long-pressing an association
+      if (isLongPressingAssociation) {
+        return;
+      }
+
       // Debounce selection changes to avoid too many messages
       if (selectionTimeout) {
         clearTimeout(selectionTimeout);

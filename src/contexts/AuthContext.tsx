@@ -35,20 +35,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [processedTokens, setProcessedTokens] = useState<Set<string>>(new Set());
 
   // Handle deep link callback for OAuth
-  const handleDeepLinkCallback = async (path: string | null, queryParams: Record<string, string | string[] | undefined> | null | undefined) => {
+  const handleDeepLinkCallback = async (path: string | null, queryParams: Record<string, string | string[] | undefined> | null | undefined, rawUrl?: string) => {
+    console.log('[Auth] Deep link callback received:', { path, queryParams, rawUrl });
+
     // Accept both 'auth/callback' and just 'callback' paths
     if (path !== 'callback' && path !== 'auth/callback' && !path?.endsWith('/callback')) {
+      console.log('[Auth] Path does not match callback pattern, ignoring');
       return;
     }
 
     // If user is already logged in, ignore OAuth callbacks (they're likely stale deep links)
     if (user) {
+      console.log('[Auth] User already logged in, ignoring callback');
       return;
     }
 
     // Extract and decode the token from the deep link
-    if (queryParams && queryParams.token) {
-      const token = queryParams.token as string;
+    console.log('[Auth] Checking for token in queryParams:', {
+      hasQueryParams: !!queryParams,
+      queryParamsKeys: queryParams ? Object.keys(queryParams) : [],
+      tokenValue: queryParams?.token,
+    });
+
+    // Fallback: manually parse query params from raw URL if Linking.parse didn't extract them
+    let token = queryParams?.token as string | undefined;
+    if (!token && rawUrl) {
+      console.log('[Auth] Token not found in parsed queryParams, trying manual parse of raw URL');
+      const urlMatch = rawUrl.match(/[?&]token=([^&]+)/);
+      if (urlMatch) {
+        token = decodeURIComponent(urlMatch[1]);
+        console.log('[Auth] Manually extracted token from URL:', { tokenLength: token.length });
+      }
+    }
+
+    if (token) {
+      console.log('[Auth] Token found, processing...');
 
       // Check if we've already processed this token to prevent duplicate processing
       if (processedTokens.has(token)) {
@@ -58,14 +79,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProcessedTokens(prev => new Set(prev).add(token));
 
       // Check for new_user or returning_user flags
-      const isNewUser = queryParams.new_user === 'true';
-      const isReturning = queryParams.returning_user === 'true';
+      const isNewUser = queryParams?.new_user === 'true';
+      const isReturning = queryParams?.returning_user === 'true';
 
       try {
         const baseUrl = API_BASE_URL.replace(/\/api$/, '');
+        const sessionUrl = `${baseUrl}/auth/session`;
+
+        console.log('[Auth] Calling session endpoint:', {
+          url: sessionUrl,
+          tokenLength: token.length,
+          tokenPreview: token.substring(0, 20) + '...',
+        });
 
         // Call the session endpoint to establish a session cookie
-        const response = await fetch(`${baseUrl}/auth/session`, {
+        const response = await fetch(sessionUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -73,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           },
           credentials: 'include',
           body: JSON.stringify({
-            token: queryParams.token as string,
+            token: token,
           }),
         });
 
@@ -112,6 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await checkSession();
       }
     } else {
+      console.log('[Auth] No token found in query params, falling back to checkSession');
       await checkSession();
     }
   };
@@ -121,8 +150,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check if app was opened with a deep link (handles cold start case)
     const checkInitialURL = async () => {
       const initialUrl = await Linking.getInitialURL();
+      console.log('[Auth] Initial URL:', initialUrl);
       if (initialUrl) {
         const { path, queryParams } = Linking.parse(initialUrl);
+        console.log('[Auth] Parsed initial URL:', { path, queryParams });
         if (path === 'callback' || path === 'auth/callback') {
           await handleDeepLinkCallback(path, queryParams);
         }
@@ -137,8 +168,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for deep link redirects from OAuth
     const subscription = Linking.addEventListener('url', async (event) => {
+      console.log('[Auth] Deep link event received:', event.url);
       const { path, queryParams } = Linking.parse(event.url);
-      await handleDeepLinkCallback(path, queryParams);
+      console.log('[Auth] Parsed deep link:', { path, queryParams });
+      await handleDeepLinkCallback(path, queryParams, event.url);
     });
 
     // Mark listener as ready
@@ -151,11 +184,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkSession = async () => {
     try {
+      // Get the stored session token for mobile authentication
+      const sessionToken = await SecureStore.getItemAsync(SESSION_TOKEN_KEY);
+
+      const headers: Record<string, string> = {
+        'ngrok-skip-browser-warning': 'true',
+      };
+
+      // Add Authorization header if we have a session token (mobile)
+      if (sessionToken) {
+        headers['Authorization'] = `Bearer ${sessionToken}`;
+      }
+
       const response = await fetch(`${API_BASE_URL}/user`, {
-        headers: {
-          'ngrok-skip-browser-warning': 'true',
-        },
-        credentials: 'include', // Important: send cookies
+        headers,
+        credentials: 'include', // Also send cookies for web compatibility
       });
 
       if (response.ok) {
@@ -174,7 +217,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
         }
       } else {
-        // No valid session (expected on initial mobile app load)
+        // No valid session - clear the stored token if it's invalid
+        if (sessionToken) {
+          await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
+        }
         setUser(null);
       }
     } catch (error) {
@@ -205,8 +251,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const authUrl = `${baseUrl}/auth/${provider}?next=${encodeURIComponent(redirectUrl)}`;
 
+      console.log('[Auth] Starting sign in:', { provider, baseUrl, redirectUrl, authUrl });
+
       // Open OAuth flow in browser
       const result = await WebBrowser.openBrowserAsync(authUrl);
+
+      console.log('[Auth] Browser result:', result);
 
       // If browser was dismissed without redirect, user might have cancelled
       if (result.type === 'cancel') {

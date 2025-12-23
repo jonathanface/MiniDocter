@@ -15,7 +15,8 @@ export interface SelectionInfo {
 interface LexicalEditorProps {
   onContentChange?: (content: any) => void;
   onSave?: (content: any) => void;
-  onAssociationClick?: (association: Association) => void;
+  onAssociationClick?: (association: Association, position: { x: number; y: number }) => void;
+  onAssociationLongPress?: (association: Association) => void;
   onFormatChange?: (formatState: any) => void;
   onReady?: () => void;
   onTextSelected?: (selection: SelectionInfo) => void;
@@ -40,7 +41,7 @@ export interface LexicalEditorRef {
 }
 
 export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
-  ({ onContentChange, onSave, onAssociationClick, onFormatChange, onReady, onTextSelected, onSelectionCleared, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
+  ({ onContentChange, onSave, onAssociationClick, onAssociationLongPress, onFormatChange, onReady, onTextSelected, onSelectionCleared, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const editorReadyRef = useRef(false);
     const pendingContentRef = useRef<any>(null);
@@ -197,7 +198,10 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             onReady?.();
             break;
           case 'associationClicked':
-            onAssociationClick?.(data.payload);
+            onAssociationClick?.(data.payload.association, data.payload.position);
+            break;
+          case 'associationLongPressed':
+            onAssociationLongPress?.(data.payload);
             break;
           case 'formatChange':
             onFormatChange?.(data.payload);

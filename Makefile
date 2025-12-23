@@ -3,7 +3,12 @@
 # Environment setup
 export JAVA_HOME := /usr/lib/jvm/java-21-openjdk-amd64
 export ANDROID_HOME := $(HOME)/Android/Sdk
+export NVM_DIR := $(HOME)/.nvm
 export PATH := $(JAVA_HOME)/bin:$(ANDROID_HOME)/platform-tools:$(PATH)
+
+# Load nvm if available
+SHELL := /bin/bash
+.SHELLFLAGS := -c 'source $(NVM_DIR)/nvm.sh 2>/dev/null; set -e; $$0 "$$@"'
 
 # Default phone IP and ports (override with: make connect PHONE_IP=192.168.1.100)
 PHONE_IP ?= 192.168.1.245

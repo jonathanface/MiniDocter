@@ -18,6 +18,7 @@ const mockRoot = {
   isEmpty: jest.fn(() => false),
   getChildren: jest.fn(() => [] as any[]),
   getAllTextNodes: jest.fn(() => []),
+  getTextContent: jest.fn(() => ''),
 };
 
 jest.mock('@lexical/react/LexicalComposer', () => ({
