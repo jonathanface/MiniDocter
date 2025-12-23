@@ -13,6 +13,7 @@ import {
   Linking,
   Keyboard,
   Dimensions,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,10 +23,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { apiGet, apiPut, apiPost } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useAssociations } from '../hooks/useAssociations';
+import { useAssociations, Association } from '../hooks/useAssociations';
 import { useDocumentSettings } from '../hooks/useDocumentSettings';
 import { AssociationPanel } from '../components/AssociationPanel';
 import { LexicalEditor, LexicalEditorRef, SelectionInfo } from '../components/LexicalEditor';
+import { EditorTutorial } from '../components/EditorTutorial';
 
 interface Chapter {
   id: string;
@@ -46,7 +48,7 @@ export const StoryEditorScreen = () => {
   const params = route.params as { storyId: string } | undefined;
   const storyId = params?.storyId;
   const { colors, theme } = useTheme();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isNewUser, markTutorialComplete } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [story, setStory] = useState<Story | null>(null);
@@ -57,6 +59,11 @@ export const StoryEditorScreen = () => {
   const [associationsListVisible, setAssociationsListVisible] = useState(false);
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const hasUnsavedChangesRef = useRef(false);
+  const isNavigatingAwayRef = useRef(false);
+  const isHandlingNavigationRef = useRef(false);
+  const handleSaveRef = useRef<((silent?: boolean) => Promise<void>) | null>(null);
 
   // Formatting state
   const [isBold, setIsBold] = useState(false);
@@ -71,6 +78,7 @@ export const StoryEditorScreen = () => {
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
   const [associationSubmenuVisible, setAssociationSubmenuVisible] = useState(false);
   const [chapterPickerVisible, setChapterPickerVisible] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const editorContainerRef = useRef<View>(null);
 
   // Fetch associations for coloring text
@@ -187,6 +195,11 @@ export const StoryEditorScreen = () => {
 
       const storyData: Story = await response.json();
       setStory(storyData);
+
+      // Show tutorial for new users when they first view their story
+      if (isNewUser) {
+        setShowTutorial(true);
+      }
     } catch (error) {
       console.error('Failed to load story:', error);
       Alert.alert('Error', 'Failed to load story');
@@ -205,6 +218,9 @@ export const StoryEditorScreen = () => {
       if (response.status === 404) {
         // No content yet, load empty editor
         editorRef.current?.setContent({ items: [] });
+        // Reset unsaved changes flag when loading new content
+        setHasUnsavedChanges(false);
+        hasUnsavedChangesRef.current = false;
         return;
       }
 
@@ -216,9 +232,47 @@ export const StoryEditorScreen = () => {
 
       // Send Lexical data directly to editor - no conversion needed!
       editorRef.current?.setContent(data);
+
+      // Reset unsaved changes flag when loading new content
+      setHasUnsavedChanges(false);
+      hasUnsavedChangesRef.current = false;
     } catch (error) {
       console.error('Failed to load chapter content:', error);
       Alert.alert('Error', 'Failed to load chapter content');
+    }
+  };
+
+  const handleCreateChapter = async () => {
+    if (!storyId || !story) {
+      Alert.alert('Error', 'No story loaded');
+      return;
+    }
+
+    try {
+      const newChapterNum = story.chapters.length + 1;
+      const newChapterTitle = `Chapter ${newChapterNum}`;
+
+      const response = await apiPost(`/stories/${storyId}/chapter`, {
+        title: newChapterTitle,
+        place: newChapterNum,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create chapter: ${response.status}`);
+      }
+
+      const newChapter = await response.json();
+
+      // Reload the story to get updated chapters list
+      await loadStory();
+
+      // Switch to the new chapter
+      setCurrentChapterId(newChapter.id);
+
+      Alert.alert('Success', `Created ${newChapterTitle}`);
+    } catch (error) {
+      console.error('Failed to create chapter:', error);
+      Alert.alert('Error', 'Failed to create new chapter');
     }
   };
 
@@ -258,6 +312,9 @@ export const StoryEditorScreen = () => {
       if (!silent) {
         Alert.alert('Success', 'Story saved successfully');
       }
+      // Clear unsaved changes flag after successful save
+      setHasUnsavedChanges(false);
+      hasUnsavedChangesRef.current = false;
     } catch (error) {
       console.error('Failed to save story:', error);
       if (!silent) {
@@ -267,6 +324,82 @@ export const StoryEditorScreen = () => {
       setSaving(false);
     }
   }, [storyId, currentChapterId]);
+
+  // Keep handleSaveRef up to date
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  }, [handleSave]);
+
+  const handleBack = () => {
+    // The beforeRemove listener will handle the unsaved changes prompt
+    navigation.goBack();
+  };
+
+  // Intercept back navigation to check for unsaved changes
+  // Set up listener only once, with no dependencies to prevent recreation
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      // If we're already handling navigation, don't show alert again
+      if (isHandlingNavigationRef.current) {
+        return;
+      }
+
+      // Check ref instead of state to avoid closure issues
+      if (!hasUnsavedChangesRef.current) {
+        return;
+      }
+
+      // Prevent default behavior of leaving the screen
+      e.preventDefault();
+
+      // Prompt the user before leaving
+      Alert.alert(
+        'Unsaved Changes',
+        'You have unsaved changes. Do you want to save before leaving?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: () => {
+              // Set navigating flag to ignore any editor changes during navigation
+              isNavigatingAwayRef.current = true;
+              // Clear the unsaved changes flag
+              hasUnsavedChangesRef.current = false;
+              setHasUnsavedChanges(false);
+              // Dispatch in next tick to ensure the alert is dismissed first
+              // This prevents the component from unmounting before we can navigate
+              setTimeout(() => {
+                navigation.dispatch(e.data.action);
+              }, 0);
+            }
+          },
+          {
+            text: 'Save',
+            onPress: async () => {
+              // Set navigating flag to ignore any editor changes during navigation
+              isNavigatingAwayRef.current = true;
+              // Use ref to get latest handleSave
+              if (handleSaveRef.current) {
+                await handleSaveRef.current(true);
+              }
+              // Flag is already cleared by handleSave
+              // Dispatch in next tick to ensure the alert is dismissed first
+              setTimeout(() => {
+                navigation.dispatch(e.data.action);
+              }, 0);
+            },
+          },
+        ]
+      );
+    });
+
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleExport = async (format: 'pdf' | 'docx' | 'epub') => {
     try {
@@ -378,7 +511,7 @@ export const StoryEditorScreen = () => {
         <Text style={[styles.errorText, { color: colors.textSecondary }]}>
           Story not found
         </Text>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Text style={[styles.backButtonText, { color: colors.primary }]}>Go Back</Text>
         </TouchableOpacity>
       </View>
@@ -389,7 +522,7 @@ export const StoryEditorScreen = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.bgPrimary, borderBottomColor: colors.borderLight }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Text style={[styles.backButtonText, { color: colors.primary }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -423,19 +556,28 @@ export const StoryEditorScreen = () => {
 
       {/* Chapter Selector - Dropdown Button */}
       {story.chapters.length > 0 && (
-        <TouchableOpacity
-          testID="chapter-selector-button"
-          style={[styles.chapterSelector, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}
-          onPress={() => setChapterPickerVisible(true)}
-        >
-          <Text style={[styles.chapterLabel, { color: colors.textSecondary }]}>Viewing:</Text>
-          <View style={styles.chapterDropdown}>
-            <Text style={[styles.chapterDropdownText, { color: colors.textPrimary }]} numberOfLines={1}>
-              {story.chapters.find(ch => ch.id === currentChapterId)?.title || 'Select Chapter'}
-            </Text>
-            <MaterialIcons name="arrow-drop-down" size={24} color={colors.textSecondary} />
-          </View>
-        </TouchableOpacity>
+        <View style={[styles.chapterSelectorContainer, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}>
+          <TouchableOpacity
+            testID="chapter-selector-button"
+            style={styles.chapterSelector}
+            onPress={() => setChapterPickerVisible(true)}
+          >
+            <Text style={[styles.chapterLabel, { color: colors.textSecondary }]}>Viewing:</Text>
+            <View style={styles.chapterDropdown}>
+              <Text style={[styles.chapterDropdownText, { color: colors.textPrimary }]} numberOfLines={1}>
+                {story.chapters.find(ch => ch.id === currentChapterId)?.title || 'Select Chapter'}
+              </Text>
+              <MaterialIcons name="arrow-drop-down" size={24} color={colors.textSecondary} />
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="new-chapter-button"
+            style={[styles.newChapterButton, { backgroundColor: colors.primary }]}
+            onPress={handleCreateChapter}
+          >
+            <MaterialIcons name="add" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Formatting Toolbar */}
@@ -528,12 +670,27 @@ export const StoryEditorScreen = () => {
           associations={associations}
           autotab={settings.autotab}
           spellcheck={settings.spellcheck}
+          onContentChange={() => {
+            // Mark as having unsaved changes when content changes
+            // But ignore changes if we're in the process of navigating away
+            if (!isNavigatingAwayRef.current) {
+              setHasUnsavedChanges(true);
+              hasUnsavedChangesRef.current = true;
+            }
+          }}
           onSave={(content) => {
             // Save triggered from editor
           }}
-          onAssociationClick={(association) => {
+          onAssociationClick={(association, position) => {
+            // Dismiss keyboard
+            Keyboard.dismiss();
+
+            // Open full association panel for editing
             setSelectedAssociationId(association.association_id);
             setAssociationPanelVisible(true);
+
+            // Hide other menus
+            setSelectionMenuVisible(false);
           }}
           onFormatChange={(formatState) => {
             setIsBold(formatState.isBold);
@@ -698,7 +855,7 @@ export const StoryEditorScreen = () => {
         onRequestClose={() => setChapterPickerVisible(false)}
       >
         <View style={styles.bottomSheetOverlay}>
-          <View style={[styles.chapterPickerModal, { backgroundColor: colors.bgModal }]}>
+          <SafeAreaView edges={['bottom']} style={[styles.chapterPickerModal, { backgroundColor: colors.bgModal }]}>
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderLight }]}>
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Chapter</Text>
               <TouchableOpacity onPress={() => setChapterPickerVisible(false)}>
@@ -737,43 +894,71 @@ export const StoryEditorScreen = () => {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
       {/* Text Selection Context Menu */}
-      {selectionMenuVisible && selectionInfo && (() => {
-        const screenWidth = Dimensions.get('window').width;
-        const screenHeight = Dimensions.get('window').height;
-        const menuWidth = 200; // minWidth from styles
-        const menuHeight = associationSubmenuVisible ? 340 : 230; // Approximate height with/without submenu
-        const padding = 10;
+      <Modal
+        visible={selectionMenuVisible && selectionInfo !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setSelectionMenuVisible(false);
+          setAssociationSubmenuVisible(false);
+        }}
+      >
+        <TouchableWithoutFeedback onPress={() => {
+          setSelectionMenuVisible(false);
+          setAssociationSubmenuVisible(false);
+        }}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              {selectionInfo && (() => {
+                const screenWidth = Dimensions.get('window').width;
+                const screenHeight = Dimensions.get('window').height;
+                const menuWidth = 200; // minWidth from styles
+                const menuHeight = associationSubmenuVisible ? 340 : 230; // Approximate height with/without submenu
+                const padding = 10;
+                const topSafeZone = 100; // Account for header/status bar
+                const bottomSafeZone = 50; // Account for bottom safe area
 
-        // Calculate horizontal position (center on selection, but keep within bounds)
-        let leftPosition = selectionInfo.x - (menuWidth / 2);
-        leftPosition = Math.max(padding, Math.min(leftPosition, screenWidth - menuWidth - padding));
+                // Calculate horizontal position (center on selection, but keep within bounds)
+                let leftPosition = selectionInfo.x - (menuWidth / 2);
+                leftPosition = Math.max(padding, Math.min(leftPosition, screenWidth - menuWidth - padding));
 
-        // Calculate vertical position (above selection, but keep within bounds)
-        let topPosition = selectionInfo.y - menuHeight - padding;
-        // If menu would go off top of screen, show it below the selection instead
-        if (topPosition < padding) {
-          topPosition = selectionInfo.y + selectionInfo.height + padding;
-        }
-        // Ensure it doesn't go off bottom
-        topPosition = Math.min(topPosition, screenHeight - menuHeight - padding);
+                // Calculate vertical position
+                // Try to show above selection first
+                let topPosition = selectionInfo.y - menuHeight - padding;
 
-        return (
-          <View
-            style={[
-              styles.selectionMenu,
-              {
-                backgroundColor: colors.bgModal,
-                borderColor: colors.borderMedium,
-                top: topPosition,
-                left: leftPosition,
-              },
-            ]}
-          >
+                // If menu would go off top of screen, show it below the selection instead
+                if (topPosition < topSafeZone) {
+                  topPosition = selectionInfo.y + selectionInfo.height + padding;
+
+                  // If it still goes off the bottom, adjust to fit on screen
+                  if (topPosition + menuHeight > screenHeight - bottomSafeZone) {
+                    // Position it to fit within screen bounds, prioritizing visibility
+                    topPosition = Math.max(topSafeZone, screenHeight - menuHeight - bottomSafeZone);
+                  }
+                } else {
+                  // Ensure it doesn't go off bottom even when positioned above
+                  topPosition = Math.max(topSafeZone, Math.min(topPosition, screenHeight - menuHeight - bottomSafeZone));
+                }
+
+                return (
+                  <View
+                    style={[
+                      styles.selectionMenu,
+                      {
+                        backgroundColor: colors.bgModal,
+                        borderColor: colors.borderMedium,
+                        top: topPosition,
+                        left: leftPosition,
+                        maxHeight: menuHeight,
+                        maxWidth: menuWidth,
+                      },
+                    ]}
+                  >
 
           {/* Selected Text Header - Non-clickable */}
           <View style={[styles.selectionHeader, { backgroundColor: colors.bgSecondary, borderBottomColor: colors.borderLight }]}>
@@ -782,6 +967,7 @@ export const StoryEditorScreen = () => {
             </Text>
           </View>
 
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
           <TouchableOpacity
             style={[styles.selectionMenuItem, { borderBottomColor: colors.borderLight }]}
             onPress={async () => {
@@ -890,9 +1076,24 @@ export const StoryEditorScreen = () => {
               </TouchableOpacity>
             </View>
           )}
+          </ScrollView>
           </View>
-        );
-      })()}
+                );
+              })()}
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Tutorial Modal for New Users */}
+      <EditorTutorial
+        visible={showTutorial}
+        onComplete={async () => {
+          setShowTutorial(false);
+          await markTutorialComplete();
+        }}
+      />
+
     </SafeAreaView>
   );
 };
@@ -948,13 +1149,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  chapterSelector: {
+  chapterSelectorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
+  },
+  chapterSelector: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
   },
   chapterLabel: {
     fontSize: 14,
@@ -971,6 +1178,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '500',
+  },
+  newChapterButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chapterPickerModal: {
     width: '100%',

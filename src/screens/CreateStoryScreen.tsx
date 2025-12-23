@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -32,7 +32,11 @@ export const CreateStoryScreen = () => {
   const [newSeriesName, setNewSeriesName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingSeries, setIsLoadingSeries] = useState(true);
+  const [isLoadingCoverImage, setIsLoadingCoverImage] = useState(true);
   const [tempImagePath, setTempImagePath] = useState<string | null>(null);
+
+  // Use ref to track temp image path for cleanup on unmount
+  const tempImagePathRef = useRef<string | null>(null);
 
   // Fetch series list on mount
   useEffect(() => {
@@ -75,21 +79,52 @@ export const CreateStoryScreen = () => {
             type: 'image/jpeg',
           });
 
-          // Track temp file path for cleanup
+          // Track temp file path for cleanup (both state and ref)
           setTempImagePath(downloadResult.uri);
+          tempImagePathRef.current = downloadResult.uri;
         }
       } catch (error) {
         console.error('Error fetching random image:', error);
-        // Silently fail - user can still pick their own image
+        // Use fallback image
+        await useFallbackImage();
+      } finally {
+        setIsLoadingCoverImage(false);
+      }
+    };
+
+    const useFallbackImage = async () => {
+      try {
+        // Copy the bundled fallback image to cache directory
+        const fallbackAsset = require('../../assets/img/icons/story_standalone_icon.jpg');
+        const fallbackUri = FileSystem.cacheDirectory + 'fallback-story-icon-' + Date.now() + '.jpg';
+
+        // Copy the asset to a file we can read
+        await FileSystem.copyAsync({
+          from: Image.resolveAssetSource(fallbackAsset).uri,
+          to: fallbackUri,
+        });
+
+        setImageUri(fallbackUri);
+        setImageFile({
+          uri: fallbackUri,
+          name: 'story-icon.jpg',
+          type: 'image/jpeg',
+        });
+
+        // Track temp file path for cleanup
+        setTempImagePath(fallbackUri);
+        tempImagePathRef.current = fallbackUri;
+      } catch (fallbackError) {
+        console.error('Error loading fallback image:', fallbackError);
       }
     };
 
     fetchRandomImage();
 
-    // Cleanup temp file on unmount
+    // Cleanup temp file on unmount using ref (captures current value)
     return () => {
-      if (tempImagePath) {
-        FileSystem.deleteAsync(tempImagePath, { idempotent: true }).catch((err) => {
+      if (tempImagePathRef.current) {
+        FileSystem.deleteAsync(tempImagePathRef.current, { idempotent: true }).catch((err) => {
           console.warn('Failed to delete temp image:', err);
         });
       }
@@ -122,6 +157,7 @@ export const CreateStoryScreen = () => {
           console.warn('Failed to delete temp image:', err);
         });
         setTempImagePath(null);
+        tempImagePathRef.current = null;
       }
 
       // Prepare file metadata for FormData
@@ -229,6 +265,7 @@ export const CreateStoryScreen = () => {
           console.warn('Failed to delete temp image after upload:', err);
         });
         setTempImagePath(null);
+        tempImagePathRef.current = null;
       }
 
       // Navigate back to story list
@@ -402,10 +439,10 @@ export const CreateStoryScreen = () => {
         <TouchableOpacity
           onPress={handleSave}
           style={styles.headerButton}
-          disabled={isSaving}
+          disabled={isSaving || isLoadingCoverImage}
         >
-          <Text style={[styles.headerButtonText, styles.saveText]}>
-            {isSaving ? 'Saving...' : 'Save'}
+          <Text style={[styles.headerButtonText, styles.saveText, (isSaving || isLoadingCoverImage) && { opacity: 0.5 }]}>
+            {isSaving ? 'Saving...' : isLoadingCoverImage ? 'Loading...' : 'Save'}
           </Text>
         </TouchableOpacity>
       </View>

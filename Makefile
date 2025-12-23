@@ -3,7 +3,12 @@
 # Environment setup
 export JAVA_HOME := /usr/lib/jvm/java-21-openjdk-amd64
 export ANDROID_HOME := $(HOME)/Android/Sdk
+export NVM_DIR := $(HOME)/.nvm
 export PATH := $(JAVA_HOME)/bin:$(ANDROID_HOME)/platform-tools:$(PATH)
+
+# Load nvm if available
+SHELL := /bin/bash
+.SHELLFLAGS := -c 'source $(NVM_DIR)/nvm.sh 2>/dev/null; set -e; $$0 "$$@"'
 
 # Default phone IP and ports (override with: make connect PHONE_IP=192.168.1.100)
 PHONE_IP ?= 192.168.1.245
@@ -66,21 +71,18 @@ build-release:
 	npx expo run:android --variant release
 
 # EAS Cloud Build shortcuts (reads ENV from .env file)
-# Read EXPO_PUBLIC_APP_ENV from .env file
-ifneq (,$(wildcard .env))
-ENV := $(shell grep '^EXPO_PUBLIC_APP_ENV=' .env | cut -d '=' -f2)
-else
-ENV := not_found
-endif
-
 .PHONY: show-env
+show-env: .SHELLFLAGS = -c
 show-env:
-	@if [ "$(ENV)" = "not_found" ]; then \
+	@if [ ! -f .env ]; then \
 		echo "ERROR: No .env file found"; \
-	elif [ -z "$(ENV)" ]; then \
-		echo "ERROR: EXPO_PUBLIC_APP_ENV not set in .env"; \
 	else \
-		echo "Current EXPO_PUBLIC_APP_ENV from .env: $(ENV)"; \
+		ENV=$$(grep '^EXPO_PUBLIC_APP_ENV=' .env | cut -d= -f2); \
+		if [ -z "$$ENV" ]; then \
+			echo "ERROR: EXPO_PUBLIC_APP_ENV not set in .env"; \
+		else \
+			echo "Current EXPO_PUBLIC_APP_ENV from .env: $$ENV"; \
+		fi; \
 	fi
 
 # Validation function for EAS builds
@@ -104,22 +106,37 @@ define validate_env
 endef
 
 .PHONY: eas-build
+eas-build: .SHELLFLAGS = -c
 eas-build:
-	$(call validate_env)
-	@echo "Building Android app for $(ENV) environment (from .env)..."
-	npx eas-cli build --platform android --profile $(ENV)
+	@if [ ! -f .env ]; then echo "ERROR: No .env file found."; exit 1; fi; \
+	ENV=$$(grep '^EXPO_PUBLIC_APP_ENV=' .env | cut -d= -f2); \
+	if [ -z "$$ENV" ]; then echo "ERROR: EXPO_PUBLIC_APP_ENV not set in .env"; exit 1; \
+	elif [ "$$ENV" = "local" ]; then echo "ERROR: Cannot use ENV=local for EAS builds."; exit 1; \
+	elif [ "$$ENV" != "staging" ] && [ "$$ENV" != "production" ]; then echo "ERROR: Invalid ENV: $$ENV"; exit 1; fi; \
+	echo "Building Android app for $$ENV environment..."; \
+	npx eas-cli build --platform android --profile $$ENV
 
 .PHONY: eas-build-ios
+eas-build-ios: .SHELLFLAGS = -c
 eas-build-ios:
-	$(call validate_env)
-	@echo "Building iOS app for $(ENV) environment (from .env)..."
-	npx eas-cli build --platform ios --profile $(ENV)
+	@if [ ! -f .env ]; then echo "ERROR: No .env file found."; exit 1; fi; \
+	ENV=$$(grep '^EXPO_PUBLIC_APP_ENV=' .env | cut -d= -f2); \
+	if [ -z "$$ENV" ]; then echo "ERROR: EXPO_PUBLIC_APP_ENV not set in .env"; exit 1; \
+	elif [ "$$ENV" = "local" ]; then echo "ERROR: Cannot use ENV=local for EAS builds."; exit 1; \
+	elif [ "$$ENV" != "staging" ] && [ "$$ENV" != "production" ]; then echo "ERROR: Invalid ENV: $$ENV"; exit 1; fi; \
+	echo "Building iOS app for $$ENV environment..."; \
+	npx eas-cli build --platform ios --profile $$ENV
 
 .PHONY: eas-build-all
+eas-build-all: .SHELLFLAGS = -c
 eas-build-all:
-	$(call validate_env)
-	@echo "Building both platforms for $(ENV) environment (from .env)..."
-	npx eas-cli build --platform all --profile $(ENV)
+	@if [ ! -f .env ]; then echo "ERROR: No .env file found."; exit 1; fi; \
+	ENV=$$(grep '^EXPO_PUBLIC_APP_ENV=' .env | cut -d= -f2); \
+	if [ -z "$$ENV" ]; then echo "ERROR: EXPO_PUBLIC_APP_ENV not set in .env"; exit 1; \
+	elif [ "$$ENV" = "local" ]; then echo "ERROR: Cannot use ENV=local for EAS builds."; exit 1; \
+	elif [ "$$ENV" != "staging" ] && [ "$$ENV" != "production" ]; then echo "ERROR: Invalid ENV: $$ENV"; exit 1; fi; \
+	echo "Building both platforms for $$ENV environment..."; \
+	npx eas-cli build --platform all --profile $$ENV
 
 .PHONY: install-release
 install-release:
@@ -133,6 +150,44 @@ clean:
 
 .PHONY: clean-build
 clean-build: clean build-release
+
+# Use INCREMENT_VERSION=1 to increment version numbers
+INCREMENT_VERSION ?= 0
+
+.PHONY: build-bundle
+build-bundle: .SHELLFLAGS = -c
+build-bundle:
+	@if [ ! -f .env ]; then echo "ERROR: No .env file found."; exit 1; fi; \
+	export $$(grep -v '^#' .env | grep -v '^$$' | xargs); \
+	if [ "$(INCREMENT_VERSION)" = "1" ]; then \
+		echo "Incrementing version numbers..."; \
+		CURRENT_VERSION_CODE=$$(grep 'versionCode' android/app/build.gradle | sed 's/[^0-9]*//g'); \
+		NEW_VERSION_CODE=$$((CURRENT_VERSION_CODE + 1)); \
+		CURRENT_VERSION_NAME=$$(grep 'versionName' android/app/build.gradle | sed 's/.*"\(.*\)".*/\1/'); \
+		IFS='.' read -ra VERSION_PARTS <<< "$$CURRENT_VERSION_NAME"; \
+		PATCH=$${VERSION_PARTS[2]}; \
+		NEW_PATCH=$$((PATCH + 1)); \
+		NEW_VERSION_NAME="$${VERSION_PARTS[0]}.$${VERSION_PARTS[1]}.$$NEW_PATCH"; \
+		echo "Updating versionCode: $$CURRENT_VERSION_CODE -> $$NEW_VERSION_CODE"; \
+		echo "Updating versionName: $$CURRENT_VERSION_NAME -> $$NEW_VERSION_NAME"; \
+		sed -i "s/versionCode $${CURRENT_VERSION_CODE}/versionCode $${NEW_VERSION_CODE}/" android/app/build.gradle; \
+		sed -i "s/versionName \"$${CURRENT_VERSION_NAME}\"/versionName \"$${NEW_VERSION_NAME}\"/" android/app/build.gradle; \
+	else \
+		echo "Building with current version (use INCREMENT_VERSION=1 to bump version)"; \
+		CURRENT_VERSION_CODE=$$(grep 'versionCode' android/app/build.gradle | sed 's/[^0-9]*//g'); \
+		CURRENT_VERSION_NAME=$$(grep 'versionName' android/app/build.gradle | sed 's/.*"\(.*\)".*/\1/'); \
+		NEW_VERSION_CODE=$$CURRENT_VERSION_CODE; \
+		NEW_VERSION_NAME=$$CURRENT_VERSION_NAME; \
+	fi; \
+	echo "Building release bundle (AAB)..."; \
+	cd android && ./gradlew bundleRelease; \
+	echo ""; \
+	echo "✓ Bundle created at: android/app/build/outputs/bundle/release/app-release.aab"; \
+	if [ "$(INCREMENT_VERSION)" = "1" ]; then \
+		echo "✓ Version updated to: $$NEW_VERSION_NAME ($$NEW_VERSION_CODE)"; \
+	else \
+		echo "✓ Current version: $$NEW_VERSION_NAME ($$NEW_VERSION_CODE)"; \
+	fi
 
 # Development shortcuts
 .PHONY: start
@@ -208,6 +263,7 @@ help:
 	@echo "Build Commands (Local):"
 	@echo "  make build-debug     - Build debug APK locally"
 	@echo "  make build-release   - Build release APK locally"
+	@echo "  make build-bundle    - Build release AAB for Play Store (use INCREMENT_VERSION=1 to bump version)"
 	@echo "  make install-release - Install release APK to device"
 	@echo "  make clean           - Clean build artifacts"
 	@echo "  make clean-build     - Clean and rebuild release"
@@ -237,5 +293,7 @@ help:
 	@echo "Examples:"
 	@echo "  make connect PHONE_IP=192.168.1.100 PHONE_PORT=5555"
 	@echo "  make pair PHONE_IP=192.168.1.100 PAIR_PORT=37171"
+	@echo "  make build-bundle                      # Build AAB with current version"
+	@echo "  make build-bundle INCREMENT_VERSION=1  # Build AAB and increment version"
 	@echo "  make eas-build           # Uses ENV from .env file"
 	@echo "  make eas-build-all       # Build both iOS and Android"

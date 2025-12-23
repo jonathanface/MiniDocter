@@ -533,19 +533,23 @@ describe('LexicalEditor', () => {
         association_name: 'Test',
         association_type: 'character',
       };
+      const position = { x: 100, y: 200 };
 
       await waitFor(() => {
         webView.props.onMessage({
           nativeEvent: {
             data: JSON.stringify({
               type: 'associationClicked',
-              payload: clickedAssociation,
+              payload: {
+                association: clickedAssociation,
+                position: position,
+              },
             }),
           },
         });
       });
 
-      expect(onAssociationClick).toHaveBeenCalledWith(clickedAssociation);
+      expect(onAssociationClick).toHaveBeenCalledWith(clickedAssociation, position);
     });
 
     it('should not throw if onAssociationClick is not provided', async () => {

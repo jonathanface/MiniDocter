@@ -1,17 +1,20 @@
 import React from 'react';
-import { render, waitFor, fireEvent } from '@testing-library/react-native';
+import { render, waitFor, fireEvent, act } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { StoryEditorScreen } from '../StoryEditorScreen';
-import { apiGet, apiPut } from '../../utils/api';
+import { apiGet, apiPut, apiPost } from '../../utils/api';
 
 // Mock dependencies
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
+const mockAddListener = jest.fn(() => jest.fn()); // Returns unsubscribe function
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: jest.fn(() => ({
     navigate: mockNavigate,
     goBack: mockGoBack,
+    addListener: mockAddListener,
+    dispatch: jest.fn(),
   })),
   useRoute: jest.fn(() => ({
     params: { storyId: 'test-story-id' },
@@ -21,6 +24,7 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('../../utils/api');
 const mockApiGet = apiGet as jest.MockedFunction<typeof apiGet>;
 const mockApiPut = apiPut as jest.MockedFunction<typeof apiPut>;
+const mockApiPost = apiPost as jest.MockedFunction<typeof apiPost>;
 
 // Mock Alert
 jest.spyOn(Alert, 'alert');
@@ -62,17 +66,31 @@ jest.mock('../../hooks/useDocumentSettings', () => ({
   })),
 }));
 
-jest.mock('../../components/LexicalEditor', () => ({
-  LexicalEditor: React.forwardRef((props: any, ref: any) => {
-    const React = require('react');
-    const { View, Text } = require('react-native');
-    return React.createElement(
-      View,
-      { testID: 'lexical-editor' },
-      React.createElement(Text, null, 'Mock Lexical Editor')
-    );
-  }),
-}));
+// Store refs for testing
+let mockEditorRef: any = null;
+let mockEditorProps: any = null;
+
+jest.mock('../../components/LexicalEditor', () => {
+  const React = require('react');
+  return {
+    LexicalEditor: React.forwardRef((props: any, ref: any) => {
+      mockEditorProps = props;
+      React.useImperativeHandle(ref, () => {
+        mockEditorRef = {
+          applyFormat: jest.fn(),
+          applyAlignment: jest.fn(),
+        };
+        return mockEditorRef;
+      });
+      const { View, Text } = require('react-native');
+      return React.createElement(
+        View,
+        { testID: 'lexical-editor' },
+        React.createElement(Text, null, 'Mock Lexical Editor')
+      );
+    }),
+  };
+});
 
 jest.mock('../../components/AssociationPanel', () => ({
   AssociationPanel: (props: any) => {
@@ -388,13 +406,88 @@ describe('StoryEditorScreen', () => {
           ok: true,
           json: async () => ({}),
         } as Response);
-      
+      });
+
       render(<StoryEditorScreen />);
 
+      await waitFor(() => {
         expect(Alert.alert).toHaveBeenCalledWith(
           'Error',
           'Failed to load chapter content'
         );
+      });
+    });
+
+    it('should create new chapter when create button is pressed', async () => {
+      const newChapterId = 'chapter-3';
+      const mockStoryWithNewChapter = {
+        ...mockStory,
+        chapters: [
+          ...mockStory.chapters,
+          { id: newChapterId, title: 'Chapter 3', place: 3 },
+        ],
+      };
+
+      mockApiPost.mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: newChapterId, title: 'Chapter 3', place: 3 }),
+      } as Response);
+
+      let callCount = 0;
+      mockApiGet.mockImplementation((url: string) => {
+        if (url === '/stories/test-story-id') {
+          callCount++;
+          // First call returns original story, second call returns story with new chapter
+          const storyData = callCount === 1 ? mockStory : mockStoryWithNewChapter;
+          return Promise.resolve({
+            ok: true,
+            json: async () => storyData,
+          } as Response);
+        }
+        if (url.includes('/content')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ items: [] }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({}),
+        } as Response);
+      });
+
+      const { getByTestId } = render(<StoryEditorScreen />);
+
+      // Wait for component to load
+      await waitFor(() => {
+        expect(getByTestId('chapter-selector-button')).toBeTruthy();
+      });
+
+      // Press the new chapter button
+      const newChapterButton = getByTestId('new-chapter-button');
+      await act(async () => {
+        fireEvent.press(newChapterButton);
+      });
+
+      // Verify API was called correctly
+      await waitFor(() => {
+        expect(mockApiPost).toHaveBeenCalledWith('/stories/test-story-id/chapter', {
+          title: 'Chapter 3',
+          place: 3,
+        });
+      });
+
+      // Verify success alert
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith('Success', 'Created Chapter 3');
+      });
+
+      // Verify story was reloaded and new chapter content was loaded
+      await waitFor(() => {
+        // Initial story load + chapter 1 content + story reload after creation + new chapter content
+        expect(mockApiGet).toHaveBeenCalled();
+        const storyCalls = mockApiGet.mock.calls.filter(call => call[0] === '/stories/test-story-id');
+        expect(storyCalls.length).toBeGreaterThanOrEqual(2);
       });
     });
   });
@@ -1059,6 +1152,184 @@ describe('StoryEditorScreen', () => {
         expect(mockApiPut).toHaveBeenCalled();
         // Should not have navigated back
         expect(mockGoBack).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Formatting Toolbar', () => {
+    beforeEach(() => {
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => mockStory,
+      } as Response);
+    });
+
+    it('should render formatting buttons', async () => {
+      const { getByText } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Test Story')).toBeTruthy();
+      });
+
+      // Formatting buttons: B, I, U, S
+      expect(getByText('B')).toBeTruthy(); // Bold
+      expect(getByText('I')).toBeTruthy(); // Italic
+      expect(getByText('U')).toBeTruthy(); // Underline
+      expect(getByText('S')).toBeTruthy(); // Strikethrough
+    });
+
+    it('should call applyFormat when bold button is pressed', async () => {
+      const { getByText } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Test Story')).toBeTruthy();
+      });
+
+      // Reset the mock to clear any previous calls
+      if (mockEditorRef) {
+        mockEditorRef.applyFormat.mockClear();
+      }
+
+      fireEvent.press(getByText('B'));
+
+      expect(mockEditorRef.applyFormat).toHaveBeenCalledWith('bold');
+    });
+
+    it('should call applyFormat when italic button is pressed', async () => {
+      const { getByText } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Test Story')).toBeTruthy();
+      });
+
+      if (mockEditorRef) {
+        mockEditorRef.applyFormat.mockClear();
+      }
+
+      fireEvent.press(getByText('I'));
+
+      expect(mockEditorRef.applyFormat).toHaveBeenCalledWith('italic');
+    });
+
+    it('should call applyFormat when underline button is pressed', async () => {
+      const { getByText } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Test Story')).toBeTruthy();
+      });
+
+      if (mockEditorRef) {
+        mockEditorRef.applyFormat.mockClear();
+      }
+
+      fireEvent.press(getByText('U'));
+
+      expect(mockEditorRef.applyFormat).toHaveBeenCalledWith('underline');
+    });
+
+    it('should call applyFormat when strikethrough button is pressed', async () => {
+      const { getByText } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Test Story')).toBeTruthy();
+      });
+
+      if (mockEditorRef) {
+        mockEditorRef.applyFormat.mockClear();
+      }
+
+      fireEvent.press(getByText('S'));
+
+      expect(mockEditorRef.applyFormat).toHaveBeenCalledWith('strikethrough');
+    });
+
+    it('should call applyAlignment when alignment button is pressed', async () => {
+      const { getByTestId } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('lexical-editor')).toBeTruthy();
+      });
+
+      if (mockEditorRef) {
+        mockEditorRef.applyAlignment.mockClear();
+      }
+
+      // Press left align icon
+      const leftAlignButton = getByTestId('material-icon-format-align-left');
+      fireEvent.press(leftAlignButton);
+
+      expect(mockEditorRef.applyAlignment).toHaveBeenCalledWith('left');
+    });
+  });
+
+
+  describe('Chapter Picker Modal', () => {
+    beforeEach(() => {
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => mockStory,
+      } as Response);
+    });
+
+    it('should show chapter list when chapter selector is pressed', async () => {
+      const { getByText } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Test Story')).toBeTruthy();
+      });
+
+      // Click chapter selector
+      fireEvent.press(getByText('Chapter 1'));
+
+      await waitFor(() => {
+        // Should show all chapters in modal
+        expect(getByText('Select Chapter')).toBeTruthy();
+      });
+    });
+
+  });
+
+  describe('Association Panel', () => {
+    const mockAssociations = [
+      {
+        association_id: 'assoc-1',
+        association_name: 'John Doe',
+        association_type: 'character',
+        short_description: 'Main character',
+        portrait: 'https://example.com/portrait.jpg',
+      },
+    ];
+
+    beforeEach(() => {
+      mockApiGet.mockResolvedValue({
+        ok: true,
+        json: async () => mockStory,
+      } as Response);
+
+      // Mock useAssociations to return associations
+      const useAssociations = require('../../hooks/useAssociations').useAssociations;
+      (useAssociations as jest.Mock).mockReturnValue({
+        associations: mockAssociations,
+      });
+    });
+
+
+    it('should open association panel when association is clicked', async () => {
+      const { getByTestId, getByText } = render(<StoryEditorScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Test Story')).toBeTruthy();
+      });
+
+      // Simulate association click
+      await waitFor(() => {
+        expect(mockEditorProps).toBeTruthy();
+      });
+
+      mockEditorProps.onAssociationClick(mockAssociations[0], { x: 100, y: 100 });
+
+      await waitFor(() => {
+        expect(getByTestId('association-panel')).toBeTruthy();
       });
     });
   });
