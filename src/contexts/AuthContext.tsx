@@ -16,12 +16,15 @@ interface AuthContextType {
   refreshUser: () => Promise<UserDetails | null>;
   showWelcome: boolean;
   isReturningUser: boolean;
+  isNewUser: boolean;
   clearWelcomeFlags: () => void;
+  markTutorialComplete: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const SESSION_TOKEN_KEY = 'session_token';
+const TUTORIAL_COMPLETE_KEY = 'tutorial_complete';
 
 // Call this at the top level to register deep link handler for OAuth flows
 WebBrowser.maybeCompleteAuthSession();
@@ -32,6 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [listenerReady, setListenerReady] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [isReturningUser, setIsReturningUser] = useState(false);
+  const [isNewUser, setIsNewUser] = useState(false);
   const [processedTokens, setProcessedTokens] = useState<Set<string>>(new Set());
 
   // Handle deep link callback for OAuth
@@ -119,6 +123,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (isNewUser || isReturning) {
             setShowWelcome(true);
             setIsReturningUser(isReturning);
+            if (isNewUser) {
+              setIsNewUser(true);
+            }
           }
 
           setIsLoading(false);
@@ -356,6 +363,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsReturningUser(false);
   };
 
+  const markTutorialComplete = async () => {
+    setIsNewUser(false);
+    await SecureStore.setItemAsync(TUTORIAL_COMPLETE_KEY, 'true');
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -367,7 +379,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshUser,
       showWelcome,
       isReturningUser,
+      isNewUser,
       clearWelcomeFlags,
+      markTutorialComplete,
     }}>
       {children}
     </AuthContext.Provider>

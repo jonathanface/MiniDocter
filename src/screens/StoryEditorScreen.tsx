@@ -27,6 +27,7 @@ import { useAssociations, Association } from '../hooks/useAssociations';
 import { useDocumentSettings } from '../hooks/useDocumentSettings';
 import { AssociationPanel } from '../components/AssociationPanel';
 import { LexicalEditor, LexicalEditorRef, SelectionInfo } from '../components/LexicalEditor';
+import { EditorTutorial } from '../components/EditorTutorial';
 
 interface Chapter {
   id: string;
@@ -47,7 +48,7 @@ export const StoryEditorScreen = () => {
   const params = route.params as { storyId: string } | undefined;
   const storyId = params?.storyId;
   const { colors, theme } = useTheme();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isNewUser, markTutorialComplete } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [story, setStory] = useState<Story | null>(null);
@@ -77,6 +78,7 @@ export const StoryEditorScreen = () => {
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
   const [associationSubmenuVisible, setAssociationSubmenuVisible] = useState(false);
   const [chapterPickerVisible, setChapterPickerVisible] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const editorContainerRef = useRef<View>(null);
 
   // Fetch associations for coloring text
@@ -193,6 +195,11 @@ export const StoryEditorScreen = () => {
 
       const storyData: Story = await response.json();
       setStory(storyData);
+
+      // Show tutorial for new users when they first view their story
+      if (isNewUser) {
+        setShowTutorial(true);
+      }
     } catch (error) {
       console.error('Failed to load story:', error);
       Alert.alert('Error', 'Failed to load story');
@@ -1077,6 +1084,15 @@ export const StoryEditorScreen = () => {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      {/* Tutorial Modal for New Users */}
+      <EditorTutorial
+        visible={showTutorial}
+        onComplete={async () => {
+          setShowTutorial(false);
+          await markTutorialComplete();
+        }}
+      />
 
     </SafeAreaView>
   );
