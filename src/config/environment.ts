@@ -66,7 +66,7 @@ const buildConfig = (): EnvironmentConfig => {
 
     case 'production':
       return {
-        apiBaseUrl: 'https://docter.io/api', // TODO: Update with actual production URL
+        apiBaseUrl: 'https://rich.docter.io/api',
         useExpoGo: false,
         googleClientId: OAUTH_GOOGLE_CLIENT_ID,
         amazonClientId: OAUTH_AMAZON_CLIENT_ID,

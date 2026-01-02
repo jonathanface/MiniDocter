@@ -76,12 +76,23 @@ jest.mock('react-native', () => ({
   TouchableOpacity: 'TouchableOpacity',
   ScrollView: 'ScrollView',
   TextInput: 'TextInput',
-  Image: 'Image',
+  Image: Object.assign(
+    jest.fn(() => 'Image'),
+    {
+      resolveAssetSource: jest.fn(() => ({
+        uri: 'file:///assets/img/icons/story_standalone_icon.jpg',
+      })),
+    }
+  ),
   ActivityIndicator: 'ActivityIndicator',
   FlatList: 'FlatList',
   Modal: ({ visible, children, ...props }) => {
     const React = require('react');
     return visible ? React.createElement('Modal', props, children) : null;
+  },
+  KeyboardAvoidingView: ({ children, ...props }) => {
+    const React = require('react');
+    return React.createElement('KeyboardAvoidingView', props, children);
   },
   Pressable: 'Pressable',
   Dimensions: {
@@ -89,6 +100,9 @@ jest.mock('react-native', () => ({
   },
   Alert: {
     alert: jest.fn(),
+  },
+  Keyboard: {
+    dismiss: jest.fn(),
   },
 }));
 

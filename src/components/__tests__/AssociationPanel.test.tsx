@@ -4,6 +4,12 @@ import { AssociationPanel } from '../AssociationPanel';
 import { apiGet } from '../../utils/api';
 import { Association } from '../../types';
 
+// Mock Platform for KeyboardAvoidingView
+jest.mock('react-native/Libraries/Utilities/Platform', () => ({
+  OS: 'ios',
+  select: jest.fn((obj) => obj.ios),
+}));
+
 // Mock dependencies
 jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(),
