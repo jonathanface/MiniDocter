@@ -90,6 +90,10 @@ jest.mock('react-native', () => ({
     const React = require('react');
     return visible ? React.createElement('Modal', props, children) : null;
   },
+  KeyboardAvoidingView: ({ children, ...props }) => {
+    const React = require('react');
+    return React.createElement('KeyboardAvoidingView', props, children);
+  },
   Pressable: 'Pressable',
   Dimensions: {
     get: jest.fn(() => ({ width: 375, height: 667 })),
