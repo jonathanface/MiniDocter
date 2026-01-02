@@ -9,6 +9,8 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -496,40 +498,44 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
       transparent={true}
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <SafeAreaView style={styles.panel} edges={['bottom']}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerTitleContainer}>
-              {association ? (
-                <>
-                  <Text style={styles.headerTitle} numberOfLines={1}>
-                    {association.association_name}
-                  </Text>
-                  <Text style={styles.headerSubtitle}>ASSOCIATION</Text>
-                </>
-              ) : (
-                <Text style={styles.headerTitle}>Association</Text>
-              )}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        <View style={styles.modalOverlay}>
+          <SafeAreaView style={styles.panel} edges={['bottom']}>
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.headerTitleContainer}>
+                {association ? (
+                  <>
+                    <Text style={styles.headerTitle} numberOfLines={1}>
+                      {association.association_name}
+                    </Text>
+                    <Text style={styles.headerSubtitle}>ASSOCIATION</Text>
+                  </>
+                ) : (
+                  <Text style={styles.headerTitle}>Association</Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={handleSave}
+                style={[styles.saveButton, { backgroundColor: colors.primary }]}
+                disabled={saving || !association}
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Save</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              onPress={handleSave}
-              style={[styles.saveButton, { backgroundColor: colors.primary }]}
-              disabled={saving || !association}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.saveButtonText}>Save</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>✕</Text>
-            </TouchableOpacity>
-          </View>
 
-          {/* Content */}
-          <ScrollView style={styles.content}>
+            {/* Content */}
+            <ScrollView style={styles.content}>
             {loading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#4285F4" />
@@ -619,6 +625,7 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
           </ScrollView>
         </SafeAreaView>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
