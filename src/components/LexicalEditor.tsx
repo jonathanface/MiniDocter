@@ -1,5 +1,5 @@
 import React, { useRef, useImperativeHandle, forwardRef } from 'react';
-import { WebView } from 'react-native-webview';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { StyleSheet } from 'react-native';
 import { LEXICAL_HTML } from './lexicalHtml';
 import { Association } from '../hooks/useAssociations';
@@ -12,12 +12,59 @@ export interface SelectionInfo {
   height: number;
 }
 
+export interface EditorFormatState {
+  isBold: boolean;
+  isItalic: boolean;
+  isUnderline: boolean;
+  isStrikethrough: boolean;
+  alignment: 'left' | 'center' | 'right' | 'justify';
+}
+
+export interface EditorContent {
+  items: EditorContentItem[];
+}
+
+export interface EditorContentItem {
+  key_id: string;
+  chunk: EditorParagraphChunk;
+  place: string;
+  chapter_id?: string;
+  story_id?: string;
+  composite_key?: string;
+}
+
+export interface EditorParagraphChunk {
+  children: EditorTextNode[];
+  direction: string;
+  format?: string | number;
+  indent?: number;
+  type?: string;
+  version?: number;
+  textFormat?: number;
+  textStyle?: string;
+  key_id?: string | number;
+}
+
+export interface EditorTextNode {
+  type: 'text';
+  version: number;
+  text: string;
+  format: number;
+  style: string;
+  mode: string;
+  detail: number;
+}
+
+export interface EditorContentResponse {
+  blocks: EditorContentItem[];
+}
+
 interface LexicalEditorProps {
-  onContentChange?: (content: any) => void;
-  onSave?: (content: any) => void;
+  onContentChange?: (content: EditorContentResponse) => void;
+  onSave?: (content: EditorContentResponse) => void;
   onAssociationClick?: (association: Association, position: { x: number; y: number }) => void;
   onAssociationLongPress?: (association: Association) => void;
-  onFormatChange?: (formatState: any) => void;
+  onFormatChange?: (formatState: EditorFormatState) => void;
   onReady?: () => void;
   onTextSelected?: (selection: SelectionInfo) => void;
   onSelectionCleared?: () => void;
@@ -30,8 +77,8 @@ interface LexicalEditorProps {
 }
 
 export interface LexicalEditorRef {
-  setContent: (content: any) => void;
-  getContent: () => Promise<any>;
+  setContent: (content: EditorContent) => void;
+  getContent: () => Promise<EditorContentResponse>;
   getHtml: () => Promise<string>;
   focus: () => void;
   applyFormat: (format: 'bold' | 'italic' | 'underline' | 'strikethrough') => void;
@@ -44,10 +91,10 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
   ({ onContentChange, onSave, onAssociationClick, onAssociationLongPress, onFormatChange, onReady, onTextSelected, onSelectionCleared, backgroundColor = '#ffffff', textColor = '#000000', associations = [], autotab = false, spellcheck = true, readOnly = false }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const editorReadyRef = useRef(false);
-    const pendingContentRef = useRef<any>(null);
+    const pendingContentRef = useRef<EditorContent | null>(null);
 
     useImperativeHandle(ref, () => ({
-      setContent: (content: any) => {
+      setContent: (content: EditorContent) => {
         if (editorReadyRef.current && webViewRef.current) {
           const message = JSON.stringify({ type: 'setContent', payload: content });
           webViewRef.current.postMessage(message);
@@ -55,10 +102,10 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
           pendingContentRef.current = content;
         }
       },
-      getContent: (): Promise<any> => {
+      getContent: (): Promise<EditorContentResponse> => {
         return new Promise((resolve) => {
           // Store resolver temporarily
-          (window as any).__contentResolver = resolve;
+          (window as unknown as { __contentResolver: (value: EditorContentResponse) => void }).__contentResolver = resolve;
           webViewRef.current?.postMessage(
             JSON.stringify({ type: 'getContent' })
           );
@@ -67,7 +114,7 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
       getHtml: (): Promise<string> => {
         return new Promise((resolve) => {
           // Store resolver temporarily
-          (window as any).__htmlResolver = resolve;
+          (window as unknown as { __htmlResolver: (value: string) => void }).__htmlResolver = resolve;
           webViewRef.current?.postMessage(
             JSON.stringify({ type: 'getHtml' })
           );
@@ -136,7 +183,7 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
       }
     }, [readOnly]);
 
-    const handleMessage = (event: any) => {
+    const handleMessage = (event: WebViewMessageEvent) => {
       try {
         const data = JSON.parse(event.nativeEvent.data);
 
@@ -145,23 +192,27 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
             // WebView log messages - silently ignore in production
             break;
           case 'contentChanged':
-            onContentChange?.(data.payload);
+            onContentChange?.(data.payload as EditorContentResponse);
             break;
           case 'save':
-            onSave?.(data.payload);
+            onSave?.(data.payload as EditorContentResponse);
             break;
-          case 'contentResponse':
-            if ((window as any).__contentResolver) {
-              (window as any).__contentResolver(data.payload);
-              delete (window as any).__contentResolver;
+          case 'contentResponse': {
+            const win = window as unknown as { __contentResolver?: (value: EditorContentResponse) => void };
+            if (win.__contentResolver) {
+              win.__contentResolver(data.payload as EditorContentResponse);
+              delete win.__contentResolver;
             }
             break;
-          case 'htmlResponse':
-            if ((window as any).__htmlResolver) {
-              (window as any).__htmlResolver(data.payload);
-              delete (window as any).__htmlResolver;
+          }
+          case 'htmlResponse': {
+            const win = window as unknown as { __htmlResolver?: (value: string) => void };
+            if (win.__htmlResolver) {
+              win.__htmlResolver(data.payload as string);
+              delete win.__htmlResolver;
             }
             break;
+          }
           case 'ready':
             editorReadyRef.current = true;
             // Send pending content if any

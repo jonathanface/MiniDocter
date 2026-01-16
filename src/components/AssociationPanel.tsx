@@ -19,7 +19,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Association } from '../types';
 import { apiGet, apiPut, apiPost, getApiBaseUrl } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
-import { LexicalEditor, LexicalEditorRef } from './LexicalEditor';
+import { LexicalEditor, LexicalEditorRef, EditorContentItem, EditorTextNode } from './LexicalEditor';
 import { useAssociations, Association as AssociationFromHook } from '../hooks/useAssociations';
 
 interface AssociationPanelProps {
@@ -188,19 +188,19 @@ export const AssociationPanel: React.FC<AssociationPanelProps> = ({
 
       // Convert Lexical blocks to plain text
       const shortDescription = summaryContent.blocks
-        .map((block: any) => {
+        .map((block: EditorContentItem) => {
           if (!block.chunk || !block.chunk.children) return '';
           return block.chunk.children
-            .map((child: any) => child.text || '')
+            .map((child: EditorTextNode) => child.text || '')
             .join('');
         })
         .join('\n');
 
       const extendedDescription = backgroundContent.blocks
-        .map((block: any) => {
+        .map((block: EditorContentItem) => {
           if (!block.chunk || !block.chunk.children) return '';
           return block.chunk.children
-            .map((child: any) => child.text || '')
+            .map((child: EditorTextNode) => child.text || '')
             .join('');
         })
         .join('\n');

@@ -52,7 +52,7 @@ export const apiGet = async (endpoint: string): Promise<Response> => {
  */
 export const apiPost = async (
   endpoint: string,
-  body?: any
+  body?: unknown
 ): Promise<Response> => {
   const baseUrl = getApiBaseUrl();
   return authenticatedFetch(`${baseUrl}${endpoint}`, {
@@ -66,7 +66,7 @@ export const apiPost = async (
  */
 export const apiPut = async (
   endpoint: string,
-  body?: any
+  body?: unknown
 ): Promise<Response> => {
   const baseUrl = getApiBaseUrl();
   return authenticatedFetch(`${baseUrl}${endpoint}`, {
