@@ -4,7 +4,7 @@
     "slug": "MiniDocter",
     "scheme": "minidocter",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "description": "Write and organize your stories with ease",
     "primaryColor": "#007AFF",

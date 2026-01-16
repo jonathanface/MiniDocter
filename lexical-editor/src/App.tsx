@@ -1080,8 +1080,12 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
       }
     }, 100);
 
-    // Handle text selection for custom context menu
-    let selectionTimeout: ReturnType<typeof setTimeout> | null = null;
+    // Handle text selection for custom context menu (only on long press)
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let selectionLongPressStartX = 0;
+    let selectionLongPressStartY = 0;
+    const longPressDuration = 500; // ms to trigger long press
+    const longPressMoveThreshold = 10; // pixels
 
     const handleSelectionChange = () => {
       // Don't send text selection events if we're long-pressing an association
@@ -1089,23 +1093,28 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
         return;
       }
 
-      // Debounce selection changes to avoid too many messages
-      if (selectionTimeout) {
-        clearTimeout(selectionTimeout);
+      const selection = window.getSelection();
+      if (!selection || selection.toString().trim().length === 0) {
+        // Selection cleared
+        sendMessage('selectionCleared');
       }
+    };
 
-      selectionTimeout = setTimeout(() => {
+    const handleSelectionTouchStart = (e: Event) => {
+      const touchEvent = e as TouchEvent;
+      if (touchEvent.touches.length !== 1) return;
+
+      const touch = touchEvent.touches[0];
+      selectionLongPressStartX = touch.clientX;
+      selectionLongPressStartY = touch.clientY;
+
+      // Start long press timer
+      longPressTimer = setTimeout(() => {
         const selection = window.getSelection();
         if (selection && selection.toString().trim().length > 0) {
           const range = selection.getRangeAt(0);
           const rect = range.getBoundingClientRect();
           const selectedText = selection.toString();
-
-          // Blur the editor to dismiss mobile keyboard
-          const contentEditableElement = document.querySelector('.editor-input') as HTMLElement;
-          if (contentEditableElement) {
-            contentEditableElement.blur();
-          }
 
           sendMessage('textSelected', {
             text: selectedText,
@@ -1114,11 +1123,32 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
             width: rect.width,
             height: rect.height,
           });
-        } else {
-          // Selection cleared
-          sendMessage('selectionCleared');
         }
-      }, 100);
+      }, longPressDuration);
+    };
+
+    const handleSelectionTouchMove = (e: Event) => {
+      const touchEvent = e as TouchEvent;
+      if (touchEvent.touches.length !== 1) return;
+
+      const touch = touchEvent.touches[0];
+      const deltaX = Math.abs(touch.clientX - selectionLongPressStartX);
+      const deltaY = Math.abs(touch.clientY - selectionLongPressStartY);
+
+      // Cancel long press if finger moved too much
+      if (deltaX > longPressMoveThreshold || deltaY > longPressMoveThreshold) {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      }
+    };
+
+    const handleSelectionTouchEnd = () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
     };
 
     // Prevent default context menu (long-press menu on mobile)
@@ -1133,10 +1163,14 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
     // Add selection change listener
     document.addEventListener('selectionchange', handleSelectionChange);
 
-    // Prevent context menu on long-press
+    // Add long press listeners for showing context menu
     const editableElement = document.querySelector('.editor-input');
     if (editableElement) {
       editableElement.addEventListener('contextmenu', preventContextMenu);
+      editableElement.addEventListener('touchstart', handleSelectionTouchStart, false);
+      editableElement.addEventListener('touchmove', handleSelectionTouchMove, false);
+      editableElement.addEventListener('touchend', handleSelectionTouchEnd, false);
+      editableElement.addEventListener('touchcancel', handleSelectionTouchEnd, false);
     }
 
     // Notify React Native that editor is ready
@@ -1146,13 +1180,17 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
       window.removeEventListener('message', handleMessage);
       document.removeEventListener('message', handleMessage as unknown as EventListener);
       document.removeEventListener('selectionchange', handleSelectionChange);
-      if (selectionTimeout) {
-        clearTimeout(selectionTimeout);
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
       }
       const editableEl = document.querySelector('.editor-input');
       if (editableEl) {
-        editableEl.removeEventListener('click', handleAssociationClick, true); // true = capture phase
+        editableEl.removeEventListener('click', handleAssociationClick, true);
         editableEl.removeEventListener('contextmenu', preventContextMenu);
+        editableEl.removeEventListener('touchstart', handleSelectionTouchStart, false);
+        editableEl.removeEventListener('touchmove', handleSelectionTouchMove, false);
+        editableEl.removeEventListener('touchend', handleSelectionTouchEnd, false);
+        editableEl.removeEventListener('touchcancel', handleSelectionTouchEnd, false);
       }
       removeEnterCommand();
     };

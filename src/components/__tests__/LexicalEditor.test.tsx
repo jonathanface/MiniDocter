@@ -113,7 +113,16 @@ describe('LexicalEditor', () => {
 
       render(<LexicalEditor ref={ref} />);
 
-      const content = { items: [{ key_id: '1', chunk: {} }] };
+      const content = {
+        items: [{
+          key_id: '1',
+          place: 'test',
+          chunk: {
+            children: [],
+            direction: 'ltr'
+          }
+        }]
+      };
       ref.current?.setContent(content);
 
       // Content should be queued, not sent immediately (internal behavior)
@@ -142,7 +151,16 @@ describe('LexicalEditor', () => {
         webView.props.ref.current = { postMessage: mockPostMessage };
       }
 
-      const content = { items: [{ key_id: '1', chunk: {} }] };
+      const content = {
+        items: [{
+          key_id: '1',
+          place: 'test',
+          chunk: {
+            children: [],
+            direction: 'ltr'
+          }
+        }]
+      };
       ref.current?.setContent(content);
 
       // Content should be sent immediately after editor is ready
@@ -634,7 +652,16 @@ describe('LexicalEditor', () => {
       const webView = UNSAFE_getByType(WebView as any);
 
       // Set content before editor is ready
-      const content = { items: [{ key_id: '1' }] };
+      const content = {
+        items: [{
+          key_id: '1',
+          place: 'test',
+          chunk: {
+            children: [],
+            direction: 'ltr'
+          }
+        }]
+      };
       ref.current?.setContent(content);
 
       // Content should be queued (internal behavior)
