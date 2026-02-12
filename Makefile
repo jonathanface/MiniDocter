@@ -144,8 +144,10 @@ install-release:
 	adb install -r android/app/build/outputs/apk/release/app-release.apk
 
 .PHONY: clean
+clean: .SHELLFLAGS = -c
 clean:
 	@echo "Cleaning build artifacts..."
+	rm -rf android/app/.cxx android/app/build android/.gradle
 	cd android && ./gradlew clean
 
 .PHONY: clean-build
@@ -158,6 +160,13 @@ INCREMENT_VERSION ?= 0
 build-bundle: .SHELLFLAGS = -c
 build-bundle:
 	@if [ ! -f .env ]; then echo "ERROR: No .env file found."; exit 1; fi; \
+	ENV=$$(grep '^EXPO_PUBLIC_APP_ENV=' .env | cut -d= -f2); \
+	if [ "$$ENV" != "production" ]; then \
+		echo "ERROR: EXPO_PUBLIC_APP_ENV must be 'production' for Play Store builds."; \
+		echo "Current value: '$$ENV'"; \
+		echo "Please update your .env file."; \
+		exit 1; \
+	fi; \
 	export $$(grep -v '^#' .env | grep -v '^$$' | xargs); \
 	if [ "$(INCREMENT_VERSION)" = "1" ]; then \
 		echo "Incrementing version numbers..."; \
@@ -263,7 +272,7 @@ help:
 	@echo "Build Commands (Local):"
 	@echo "  make build-debug     - Build debug APK locally"
 	@echo "  make build-release   - Build release APK locally"
-	@echo "  make build-bundle    - Build release AAB for Play Store (use INCREMENT_VERSION=1 to bump version)"
+	@echo "  make build-bundle    - Build release AAB for Play Store (requires ENV=production, use INCREMENT_VERSION=1 to bump version)"
 	@echo "  make install-release - Install release APK to device"
 	@echo "  make clean           - Clean build artifacts"
 	@echo "  make clean-build     - Clean and rebuild release"
