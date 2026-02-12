@@ -1,30 +1,27 @@
-import type { Config } from 'jest';
+const tsJestPath = require.resolve('ts-jest');
 
-const config: Config = {
-  preset: 'ts-jest',
+/** @type {import('jest').Config} */
+module.exports = {
   testEnvironment: 'jsdom',
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.test.{ts,tsx}'],
   moduleNameMapper: {
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
     '!src/main.tsx',
   ],
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', {
+    '^.+\\.tsx?$': [tsJestPath, {
       tsconfig: {
         jsx: 'react-jsx',
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
       },
-      diagnostics: false, // Disable type checking during tests
+      diagnostics: false,
       isolatedModules: true,
     }],
   },
 };
-
-export default config;

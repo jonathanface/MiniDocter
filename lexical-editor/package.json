@@ -8,8 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "jest",
-    "test:watch": "jest --watch"
+    "test": "cd .. && npx jest --config lexical-editor/jest.config.cjs --rootDir lexical-editor",
+    "test:watch": "cd .. && npx jest --config lexical-editor/jest.config.cjs --rootDir lexical-editor --watch"
   },
   "dependencies": {
     "@lexical/dragon": "^0.23.1",
