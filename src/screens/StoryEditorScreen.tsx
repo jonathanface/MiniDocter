@@ -174,7 +174,14 @@ export const StoryEditorScreen = () => {
         // Refresh associations list to show the new association
         refreshAssociations();
       } else if (response.status === 402) {
-        Alert.alert('Subscription Required', 'You have reached the maximum number of associations. Please subscribe to create more.');
+        Alert.alert(
+          'Subscription Required',
+          'You have reached the maximum number of associations. Subscribe to create more.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Subscribe', onPress: () => navigation.navigate('Subscribe' as never) },
+          ]
+        );
       } else {
         const errorData = await response.json().catch(() => ({}));
         Alert.alert('Error', errorData.message || 'Failed to create association');
