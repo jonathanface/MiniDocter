@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { apiGet, apiPut, apiPost } from '../utils/api';
+import { apiGet, apiPut, apiPost, apiDelete } from '../utils/api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAssociations, Association } from '../hooks/useAssociations';
@@ -300,8 +300,7 @@ export const StoryEditorScreen = () => {
         throw new Error('Failed to get editor content');
       }
 
-      // TODO: Convert Lexical editor state to backend format
-      // For now, just send content structure
+      // Save current blocks
       const payload = {
         story_id: storyId,
         chapter_id: currentChapterId,
@@ -314,6 +313,22 @@ export const StoryEditorScreen = () => {
         const errorText = await response.text();
         console.error('Save failed:', response.status, errorText);
         throw new Error(`Failed to save: ${response.status}`);
+      }
+
+      // Delete tail positions that are now orphaned.
+      // PUT writes places 0..N-1. If original had M blocks (M > N),
+      // places N..M-1 are orphaned and must be explicitly deleted.
+      const deletedBlocks = content.deletedBlocks || [];
+      if (deletedBlocks.length > 0) {
+        const deletePayload = {
+          story_id: storyId,
+          chapter_id: currentChapterId,
+          blocks: deletedBlocks,
+        };
+        const deleteResponse = await apiDelete(`/stories/${storyId}/block`, deletePayload);
+        if (!deleteResponse.ok) {
+          console.error('Failed to delete orphaned blocks:', deleteResponse.status);
+        }
       }
 
       if (!silent) {

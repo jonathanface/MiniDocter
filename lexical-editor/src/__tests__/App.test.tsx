@@ -81,6 +81,10 @@ jest.mock('lexical', () => {
       remove: jest.fn(),
       getKey: jest.fn(() => 'text-1'),
     })),
+    $createLineBreakNode: jest.fn(() => ({
+      getType: jest.fn(() => 'linebreak'),
+      getKey: jest.fn(() => 'lb-1'),
+    })),
     $getSelection: jest.fn(() => null),
     $setSelection: jest.fn(),
     $createRangeSelection: jest.fn(() => ({
@@ -187,6 +191,7 @@ describe('App', () => {
 
       const mockParagraph = {
         getType: jest.fn(() => 'paragraph'),
+        getKey: jest.fn(() => 'mock-key-1'),
         getChildren: jest.fn(() => [
           {
             getType: jest.fn(() => 'text'),
@@ -196,7 +201,7 @@ describe('App', () => {
             getDetail: jest.fn(() => 0),
           },
         ]),
-        getFormat: jest.fn(() => 'left'),
+        getFormatType: jest.fn(() => 'left'),
         getIndent: jest.fn(() => 0),
       };
 
@@ -421,6 +426,7 @@ describe('App', () => {
 
       const mockParagraph = {
         getType: jest.fn(() => 'paragraph'),
+        getKey: jest.fn(() => 'mock-key-2'),
         getChildren: jest.fn(() => [mockTextNode]),
         getFormatType: jest.fn(() => 'center'),
         getIndent: jest.fn(() => 2),
@@ -483,6 +489,7 @@ describe('App', () => {
 
       const mockParagraph = {
         getType: jest.fn(() => 'paragraph'),
+        getKey: jest.fn(() => 'para-1'),
         getChildren: jest.fn(() => [
           {
             getType: jest.fn(() => 'text'),
@@ -492,7 +499,7 @@ describe('App', () => {
             getDetail: jest.fn(() => 0),
           },
         ]),
-        getFormat: jest.fn(() => 'left'),
+        getFormatType: jest.fn(() => 'left'),
         getIndent: jest.fn(() => 0),
       };
 

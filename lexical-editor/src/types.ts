@@ -9,7 +9,7 @@ export interface Association {
 }
 
 export interface TextNodeData {
-  type: 'text';
+  type: 'text' | 'linebreak';
   version: number;
   text: string;
   format: number;

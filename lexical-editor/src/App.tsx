@@ -4,8 +4,8 @@ import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { $getRoot, $createParagraphNode, $createTextNode, $getSelection, $setSelection, $createRangeSelection, $isRangeSelection, TextNode, ElementNode, KEY_ENTER_COMMAND, COMMAND_PRIORITY_LOW } from 'lexical';
-import type { LexicalNode } from 'lexical';
+import { $getRoot, $createParagraphNode, $createTextNode, $createLineBreakNode, $getSelection, $setSelection, $createRangeSelection, $isRangeSelection, TextNode, ElementNode, KEY_ENTER_COMMAND, COMMAND_PRIORITY_LOW } from 'lexical';
+import type { LexicalEditor, LexicalNode } from 'lexical';
 import type { Association, BackendData, BackendItem, ExportedBlock, TextNodeData, ParagraphChunk, SelectionInfo, SearchPattern } from './types';
 import './App.css';
 
@@ -25,7 +25,7 @@ const ASSOCIATION_COLORS = {
 
 interface EditorPluginProps {
   setIsReadOnly: (readOnly: boolean) => void;
-  editorRef?: React.MutableRefObject<any>;
+  editorRef?: React.MutableRefObject<LexicalEditor | null>;
 }
 
 function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
@@ -39,7 +39,7 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
   }, [editor, editorRef]);
   const isLoadingRef = useRef(false);
   const isHighlightingRef = useRef(false); // Prevent infinite loop during highlighting
-  const originalItemsRef = useRef<BackendItem[]>([]); // Store original items to preserve key_ids
+  const originalItemMapRef = useRef<Map<string, BackendItem>>(new Map()); // Map Lexical paragraph key -> original backend item
   const associationsRef = useRef<Association[]>([]); // Store associations for color mapping
   const associationMapRef = useRef<Map<string, Association>>(new Map()); // Map text content to association for click handling
   const autotabRef = useRef(false); // Store autotab setting
@@ -61,6 +61,9 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
         return;
       }
 
+      // Clear old paragraph-to-item mapping
+      originalItemMapRef.current.clear();
+
       // Special case: if we have exactly 1 item with empty children, treat it as empty
       if (data.items.length === 1) {
         try {
@@ -81,13 +84,13 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
 
           // If the only paragraph has no children (empty), replace with fresh paragraph
           if (!chunk.children || chunk.children.length === 0) {
-            // IMPORTANT: Store the original item to preserve its key_id when saving
-            originalItemsRef.current = [item];
             editor.update(() => {
               const root = $getRoot();
               root.clear();
               const para = $createParagraphNode();
               root.append(para);
+              // Map this paragraph to its original backend item to preserve key_id when saving
+              originalItemMapRef.current.set(para.getKey(), item);
               // Set selection to the paragraph
               const selection = $createRangeSelection();
               selection.anchor.set(para.getKey(), 0, 'element');
@@ -114,8 +117,6 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
         return;
       }
 
-      // Store original items to preserve key_ids and other metadata
-      originalItemsRef.current = data.items;
       isLoadingRef.current = true;
       editor.update(() => {
         const root = $getRoot();
@@ -152,6 +153,11 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
 
             if (chunk.children && Array.isArray(chunk.children) && chunk.children.length > 0) {
               chunk.children.forEach((textNode: TextNodeData) => {
+                if (textNode.type === 'linebreak') {
+                  paragraph.append($createLineBreakNode());
+                  return;
+                }
+
                 const text = $createTextNode(textNode.text || '');
 
                 const format = textNode.format || 0;
@@ -172,6 +178,8 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
             }
 
             root.append(paragraph);
+            // Map this paragraph to its original backend item
+            originalItemMapRef.current.set(paragraph.getKey(), item);
           } catch (error) {
             console.error('Failed to parse chunk:', error);
           }
@@ -212,6 +220,7 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
     // Export content to backend format
     function exportContentToBackend() {
       const blocks: ExportedBlock[] = [];
+      const exportedParagraphKeys = new Set<string>();
 
       editor.getEditorState().read(() => {
         const root = $getRoot();
@@ -219,6 +228,7 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
 
         children.forEach((node, index) => {
           if (node.getType() === 'paragraph') {
+            exportedParagraphKeys.add(node.getKey());
             const textNodes: TextNodeData[] = [];
             const nodeChildren = (node as ElementNode).getChildren();
 
@@ -240,11 +250,21 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
                   mode: 'normal',
                   detail: (child as TextNode).getDetail?.() || 0,
                 });
+              } else if (child.getType() === 'linebreak') {
+                textNodes.push({
+                  type: 'linebreak',
+                  version: 1,
+                  text: '\n',
+                  format: 0,
+                  style: '',
+                  mode: 'normal',
+                  detail: 0,
+                });
               }
             });
 
-            // Get original item if it exists to preserve metadata
-            const originalItem = originalItemsRef.current[index];
+            // Get original item if it exists to preserve metadata (by Lexical key, not index)
+            const originalItem = originalItemMapRef.current.get(node.getKey());
 
             // Get paragraph format and indent
             const paragraphNode = node as ElementNode & {
@@ -300,7 +320,20 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
         });
       });
 
-      return { blocks };
+      // After PUT writes blocks at places 0..N-1, any blocks at places N..M-1
+      // (where M = original count) are orphaned and need deletion.
+      // This handles all cases: deleting first, middle, or last paragraphs.
+      const originalCount = originalItemMapRef.current.size;
+      const currentCount = blocks.length;
+      const deletedBlocks: Array<{ key_id: string; place: string }> = [];
+
+      if (currentCount < originalCount) {
+        for (let i = currentCount; i < originalCount; i++) {
+          deletedBlocks.push({ key_id: `orphan-${i}`, place: i.toString() });
+        }
+      }
+
+      return { blocks, deletedBlocks };
     }
 
     // Highlight all association names/aliases in the document
@@ -1201,7 +1234,7 @@ function EditorPlugin({ setIsReadOnly, editorRef }: EditorPluginProps) {
 
 function App() {
   const [isReadOnly, setIsReadOnly] = React.useState(false);
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<LexicalEditor | null>(null);
 
   const initialConfig = {
     namespace: 'MiniDocterEditor',
