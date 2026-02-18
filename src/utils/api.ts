@@ -77,9 +77,44 @@ export const apiPut = async (
 
 /**
  * Helper for DELETE requests
+ * Uses XMLHttpRequest when a body is provided because React Native's fetch
+ * on Android (via OkHttp) silently strips the body from DELETE requests.
  */
-export const apiDelete = async (endpoint: string): Promise<Response> => {
+export const apiDelete = async (
+  endpoint: string,
+  body?: unknown
+): Promise<Response> => {
   const baseUrl = getApiBaseUrl();
+
+  if (body) {
+    const sessionToken = await SecureStore.getItemAsync(SESSION_TOKEN_KEY);
+    const url = `${baseUrl}${endpoint}`;
+    const bodyStr = JSON.stringify(body);
+
+    return new Promise<Response>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('DELETE', url);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('ngrok-skip-browser-warning', 'true');
+      if (sessionToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${sessionToken}`);
+      }
+
+      xhr.onload = () => {
+        resolve(new Response(xhr.responseText, {
+          status: xhr.status,
+          statusText: xhr.statusText,
+        }));
+      };
+
+      xhr.onerror = () => {
+        reject(new TypeError('Network request failed'));
+      };
+
+      xhr.send(bodyStr);
+    });
+  }
+
   return authenticatedFetch(`${baseUrl}${endpoint}`, {
     method: 'DELETE',
   });

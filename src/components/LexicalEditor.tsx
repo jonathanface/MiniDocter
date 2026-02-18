@@ -57,6 +57,7 @@ export interface EditorTextNode {
 
 export interface EditorContentResponse {
   blocks: EditorContentItem[];
+  deletedBlocks?: Array<{ key_id: string; place: string }>;
 }
 
 interface LexicalEditorProps {
@@ -189,7 +190,6 @@ export const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(
 
         switch (data.type) {
           case 'log':
-            // WebView log messages - silently ignore in production
             break;
           case 'contentChanged':
             onContentChange?.(data.payload as EditorContentResponse);
