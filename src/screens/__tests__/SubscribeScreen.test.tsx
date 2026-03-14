@@ -50,7 +50,7 @@ describe('SubscribeScreen', () => {
       const { getByText } = render(<SubscribeScreen />);
 
       expect(getByText('Full membership')).toBeTruthy();
-      expect(getByText('$5 / month — unlimited access')).toBeTruthy();
+      expect(getByText('$10 / month — unlimited access')).toBeTruthy();
     });
 
     it('should render all feature items', () => {
@@ -64,7 +64,7 @@ describe('SubscribeScreen', () => {
     it('should render subscribe button', () => {
       const { getByText } = render(<SubscribeScreen />);
 
-      expect(getByText('Subscribe for $5/mo →')).toBeTruthy();
+      expect(getByText('Subscribe for $10/mo →')).toBeTruthy();
     });
 
     it('should render security badge', () => {
@@ -116,10 +116,10 @@ describe('SubscribeScreen', () => {
     it('should call subscribe button handler when pressed', async () => {
       const { getByText } = render(<SubscribeScreen />);
 
-      fireEvent.press(getByText('Subscribe for $5/mo →'));
+      fireEvent.press(getByText('Subscribe for $10/mo →'));
 
       // Just verify button can be pressed - Linking mocking is complex
-      expect(getByText('Subscribe for $5/mo →')).toBeTruthy();
+      expect(getByText('Subscribe for $10/mo →')).toBeTruthy();
     });
 
   });
@@ -147,13 +147,13 @@ describe('SubscribeScreen', () => {
     it('should display pricing in title', () => {
       const { getByText } = render(<SubscribeScreen />);
 
-      expect(getByText(/\$5 \/ month/i)).toBeTruthy();
+      expect(getByText(/\$10 \/ month/i)).toBeTruthy();
     });
 
     it('should display pricing in button', () => {
       const { getByText } = render(<SubscribeScreen />);
 
-      expect(getByText(/\$5\/mo/i)).toBeTruthy();
+      expect(getByText(/\$10\/mo/i)).toBeTruthy();
     });
 
     it('should show Stripe branding', () => {
@@ -187,7 +187,7 @@ describe('SubscribeScreen', () => {
       expect(getByText('Unlimited associations')).toBeTruthy();
 
       // Button section
-      expect(getByText('Subscribe for $5/mo →')).toBeTruthy();
+      expect(getByText('Subscribe for $10/mo →')).toBeTruthy();
 
       // Security section
       expect(getByText('Secure checkout by Stripe')).toBeTruthy();
@@ -204,7 +204,7 @@ describe('SubscribeScreen', () => {
     it('should have pressable subscribe button', () => {
       const { getByText } = render(<SubscribeScreen />);
 
-      const button = getByText('Subscribe for $5/mo →').parent;
+      const button = getByText('Subscribe for $10/mo →').parent;
       expect(button).toBeTruthy();
     });
 

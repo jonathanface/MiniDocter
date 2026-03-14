@@ -338,7 +338,7 @@ export const AccountScreen = () => {
               </View>
             )}
 
-            <Text style={styles.priceText}>$5/month • cancel anytime</Text>
+            <Text style={styles.priceText}>$10/month • cancel anytime</Text>
 
             {isScheduledToCancel && data?.currentPeriodEnd && (
               <Text style={[styles.messageText, styles.warningText]}>
