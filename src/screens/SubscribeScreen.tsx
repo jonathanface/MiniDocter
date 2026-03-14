@@ -164,7 +164,7 @@ export const SubscribeScreen = () => {
         <View style={styles.content}>
           <View style={styles.header}>
             <Text style={styles.title}>Full membership</Text>
-            <Text style={styles.subtitle}>$5 / month — unlimited access</Text>
+            <Text style={styles.subtitle}>$10 / month — unlimited access</Text>
           </View>
 
           <View style={styles.card}>
@@ -184,7 +184,7 @@ export const SubscribeScreen = () => {
                 style={styles.subscribeButton}
                 onPress={handleCheckout}
               >
-                <Text style={styles.buttonText}>Subscribe for $5/mo →</Text>
+                <Text style={styles.buttonText}>Subscribe for $10/mo →</Text>
               </TouchableOpacity>
 
               <View style={styles.secureContainer}>

@@ -423,7 +423,7 @@ describe('AccountScreen', () => {
       const { getByText } = render(<AccountScreen />);
 
       await waitFor(() => {
-        expect(getByText(/\$5\/month/i)).toBeTruthy();
+        expect(getByText(/\$10\/month/i)).toBeTruthy();
         expect(getByText(/cancel anytime/i)).toBeTruthy();
       });
     });
