@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isReturning = queryParams?.returning_user === 'true';
 
       try {
-        const baseUrl = API_BASE_URL.replace(/\/api$/, '');
+        const baseUrl = API_BASE_URL.replace(/\/api\/v1$/, '');
         const sessionUrl = `${baseUrl}/auth/session`;
 
         console.log('[Auth] Calling session endpoint:', {
@@ -244,7 +244,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Open backend OAuth endpoint with custom redirect
       // Auth endpoints are at the root (e.g., /auth/google), not under /api
-      const baseUrl = API_BASE_URL.replace(/\/api$/, '');
+      const baseUrl = API_BASE_URL.replace(/\/api\/v1$/, '');
 
       let redirectUrl: string;
       if (USE_EXPO_GO) {
@@ -289,7 +289,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Call backend logout endpoint if we have a token
       if (sessionToken) {
         try {
-          const baseUrl = API_BASE_URL.replace(/\/api$/, '');
+          const baseUrl = API_BASE_URL.replace(/\/api\/v1$/, '');
 
           await fetch(`${baseUrl}/auth/logout`, {
             method: 'DELETE',
