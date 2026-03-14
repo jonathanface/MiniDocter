@@ -49,7 +49,7 @@ const buildConfig = (): EnvironmentConfig => {
         console.error('Please set EXPO_PUBLIC_NGROK_URL or run backend with "make dev-mobile"');
       }
       return {
-        apiBaseUrl: ngrokUrl ? `${ngrokUrl}/api` : 'https://stage.docter.io/api',
+        apiBaseUrl: ngrokUrl ? `${ngrokUrl}/api/v1` : 'https://stage.docter.io/api/v1',
         useExpoGo: true,
         googleClientId: OAUTH_GOOGLE_CLIENT_ID,
         amazonClientId: OAUTH_AMAZON_CLIENT_ID,
@@ -58,7 +58,7 @@ const buildConfig = (): EnvironmentConfig => {
 
     case 'staging':
       return {
-        apiBaseUrl: 'https://stage.docter.io/api',
+        apiBaseUrl: 'https://stage.docter.io/api/v1',
         useExpoGo: true, // Can use Expo Go for staging testing
         googleClientId: OAUTH_GOOGLE_CLIENT_ID,
         amazonClientId: OAUTH_AMAZON_CLIENT_ID,
@@ -66,7 +66,7 @@ const buildConfig = (): EnvironmentConfig => {
 
     case 'production':
       return {
-        apiBaseUrl: 'https://rich.docter.io/api',
+        apiBaseUrl: 'https://rich.docter.io/api/v1',
         useExpoGo: false,
         googleClientId: OAUTH_GOOGLE_CLIENT_ID,
         amazonClientId: OAUTH_AMAZON_CLIENT_ID,
